@@ -1,6 +1,5 @@
 import { t as __exportAll } from "./rolldown-runtime-wcPFST8Q.mjs";
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/feishu";
-import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";

@@ -9,7 +9,7 @@
  * unset fields fall back to the top-level defaults.
  */
 
-import { DEFAULT_ACCOUNT_ID } from 'openclaw/plugin-sdk/feishu';
+import { DEFAULT_ACCOUNT_ID } from 'openclaw/plugin-sdk/account-id';
 import { normalizeAccountId as _sdkNormalizeAccountId } from 'openclaw/plugin-sdk/account-id';
 
 const normalizeAccountId: (id: string) => string | undefined =

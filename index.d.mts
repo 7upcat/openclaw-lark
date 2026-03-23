@@ -1,7 +1,6 @@
-import { HistoryEntry } from "openclaw/plugin-sdk/feishu";
+import { HistoryEntry } from "openclaw/plugin-sdk/reply-history";
 import { z } from "zod";
 import { ChannelMessageActionAdapter, ChannelPlugin, ClawdbotConfig, OpenClawConfig, OpenClawPluginApi, RuntimeEnv } from "openclaw/plugin-sdk";
-
 //#region src/core/config-schema.d.ts
 declare const FeishuConfigSchema: z.ZodObject<{
   appId: z.ZodOptional<z.ZodString>;

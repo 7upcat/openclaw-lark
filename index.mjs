@@ -1,6 +1,7 @@
-import { A as getEnabledLarkAccounts, M as getLarkAccountIds, O as createAccountScopedConfig, T as getTicket, c as AppScopeCheckFailedError, j as getLarkAccount, k as getDefaultLarkAccountId, w as larkLogger, x as getUserAgent, y as LarkClient } from "./user-name-cache-CmJepk5c.mjs";
-import { $ as nonBotMentions, A as wwwDomain, B as getAppGrantedScopes, C as formatDiagReportCli, D as resolveAnyEnabledToolsConfig, E as traceByMessageId, F as getMessageFeishu, G as buildMentionedCardContent, H as sendCardFeishu, I as parseMessageEvent, J as formatMentionAllForCard, K as buildMentionedMessage, L as buildConvertContextFromItem, M as filterSensitiveScopes, N as getStoredToken, O as mcpDomain, P as checkMessageGate, Q as mentionedBot, R as convertMessageContent, S as analyzeTrace, T as runDiagnosis, U as sendMessageFeishu, V as editMessageFeishu, W as updateCardFeishu, X as formatMentionForCard, Y as formatMentionAllForText, Z as formatMentionForText, _ as createToolContext, a as triggerOnboarding, at as formatLarkError, b as registerTool, c as StringEnum, ct as sendImageLark, d as json, dt as uploadImageLark, et as resolveFeishuGroupToolPolicy, f as parseTimeToRFC3339, ft as validateLocalMediaRoots, g as handleInvokeErrorWithAutoAuth, gt as resolveReceiveIdType, h as unixTimestampToISO8601, ht as parseFeishuRouteTarget, i as isMessageExpired, it as assertLarkOk$2, j as probeFeishu, k as openPlatformDomain, l as convertTimeRange, lt as uploadAndSendMediaLark, m as parseTimeToTimestampMs, mt as normalizeFeishuTarget, nt as sendMediaLark, o as executeAuthorize, ot as sendAudioLark, p as parseTimeToTimestamp, pt as looksLikeFeishuId, q as extractMessageBody, r as handleFeishuReaction, rt as sendTextLark, s as registerFeishuOAuthTool, st as sendFileLark, t as monitorFeishuProvider, tt as sendCardLark, u as isInvokeError, ut as uploadFileLark, v as formatToolResult, w as formatTraceOutput, x as registerCommands, y as getFirstAccount, z as extractMentionOpenId } from "./monitor-D-p2YuQW.mjs";
-import { DEFAULT_ACCOUNT_ID, PAIRING_APPROVED_MESSAGE, feishuSetupAdapter, feishuSetupWizard } from "openclaw/plugin-sdk/feishu";
+import { A as getEnabledLarkAccounts, M as getLarkAccountIds, O as createAccountScopedConfig, T as getTicket, c as AppScopeCheckFailedError, j as getLarkAccount, k as getDefaultLarkAccountId, w as larkLogger, x as getUserAgent, y as LarkClient } from "./user-name-cache-Bw1VQ2E0.mjs";
+import { $ as nonBotMentions, A as wwwDomain, B as getAppGrantedScopes, C as formatDiagReportCli, D as resolveAnyEnabledToolsConfig, E as traceByMessageId, F as getMessageFeishu, G as buildMentionedCardContent, H as sendCardFeishu, I as parseMessageEvent, J as formatMentionAllForCard, K as buildMentionedMessage, L as buildConvertContextFromItem, M as filterSensitiveScopes, N as getStoredToken, O as mcpDomain, P as checkMessageGate, Q as mentionedBot, R as convertMessageContent, S as analyzeTrace, T as runDiagnosis, U as sendMessageFeishu, V as editMessageFeishu, W as updateCardFeishu, X as formatMentionForCard, Y as formatMentionAllForText, Z as formatMentionForText, _ as createToolContext, a as triggerOnboarding, at as formatLarkError, b as registerTool, c as StringEnum, ct as sendImageLark, d as json, dt as uploadImageLark, et as resolveFeishuGroupToolPolicy, f as parseTimeToRFC3339, ft as validateLocalMediaRoots, g as handleInvokeErrorWithAutoAuth, gt as resolveReceiveIdType, h as unixTimestampToISO8601, ht as parseFeishuRouteTarget, i as isMessageExpired, it as assertLarkOk$2, j as probeFeishu, k as openPlatformDomain, l as convertTimeRange, lt as uploadAndSendMediaLark, m as parseTimeToTimestampMs, mt as normalizeFeishuTarget, nt as sendMediaLark, o as executeAuthorize, ot as sendAudioLark, p as parseTimeToTimestamp, pt as looksLikeFeishuId, q as extractMessageBody, r as handleFeishuReaction, rt as sendTextLark, s as registerFeishuOAuthTool, st as sendFileLark, t as monitorFeishuProvider, tt as sendCardLark, u as isInvokeError, ut as uploadFileLark, v as formatToolResult, w as formatTraceOutput, x as registerCommands, y as getFirstAccount, z as extractMentionOpenId } from "./monitor-CvIfHTzy.mjs";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
+import { PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk/channel-status";
 import * as path$1 from "node:path";
 import path from "node:path";
 import fs, { createReadStream } from "node:fs";
@@ -962,6 +963,10 @@ function mergeFeishuAccountConfig(cfg, accountId, patch) {
 function setAccountEnabled(cfg, accountId, enabled) {
 	return mergeFeishuAccountConfig(cfg, accountId, { enabled });
 }
+/** Apply an arbitrary config patch to a Feishu account. */
+function applyAccountConfig(cfg, accountId, patch) {
+	return mergeFeishuAccountConfig(cfg, accountId, patch);
+}
 /** Delete a Feishu account entry from the config. */
 function deleteAccount(cfg, accountId) {
 	if (!accountId || accountId === DEFAULT_ACCOUNT_ID) {
@@ -1272,8 +1277,12 @@ const feishuPlugin = {
 		cfg,
 		accountId: accountId ?? DEFAULT_ACCOUNT_ID
 	}) },
-	setup: feishuSetupAdapter,
-	setupWizard: feishuSetupWizard,
+	setup: {
+		resolveAccountId: () => DEFAULT_ACCOUNT_ID,
+		applyAccountConfig: ({ cfg, accountId }) => {
+			return applyAccountConfig(cfg, accountId, { enabled: true });
+		}
+	},
 	messaging: {
 		normalizeTarget: (raw) => normalizeFeishuTarget(raw) ?? void 0,
 		targetResolver: {
@@ -1335,7 +1344,7 @@ const feishuPlugin = {
 	},
 	gateway: {
 		startAccount: async (ctx) => {
-			const { monitorFeishuProvider } = await import("./monitor-D-p2YuQW.mjs").then((n) => n.n);
+			const { monitorFeishuProvider } = await import("./monitor-CvIfHTzy.mjs").then((n) => n.n);
 			const account = getLarkAccount(ctx.cfg, ctx.accountId);
 			const port = account.config?.webhookPort ?? null;
 			ctx.setStatus({

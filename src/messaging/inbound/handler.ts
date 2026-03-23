@@ -15,11 +15,11 @@
  */
 
 import type { ClawdbotConfig, RuntimeEnv } from 'openclaw/plugin-sdk';
-import type { HistoryEntry } from 'openclaw/plugin-sdk/feishu';
+import type { HistoryEntry } from 'openclaw/plugin-sdk/reply-history';
 import {
   recordPendingHistoryEntryIfEnabled,
   DEFAULT_GROUP_HISTORY_LIMIT,
-} from 'openclaw/plugin-sdk/feishu';
+} from 'openclaw/plugin-sdk/reply-history';
 import { resolveSenderCommandAuthorization } from 'openclaw/plugin-sdk/zalouser';
 import { isNormalizedSenderAllowed } from 'openclaw/plugin-sdk/allow-from';
 import type { FeishuMessageEvent } from '../types';
