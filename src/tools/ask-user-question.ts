@@ -327,13 +327,14 @@ export function handleAskUserAction(data: unknown, _cfg: ClawdbotConfig, account
   }
 
   // Mark as submitted (guard against double-submit & TTL expiry).
-  // Card stays in "待回答" state until synthetic message succeeds — this
-  // keeps the form submittable so the user can retry if injection fails.
   ctx.submitted = true;
 
+  // Build the intermediate "processing" card for immediate visual feedback.
+  const processingCard = buildProcessingCard(ctx.questions, answers);
+
   // Inject synthetic message with answers. On success, updates card to
-  // "answered" and consumes context. On failure, resets submitted flag
-  // so user can re-submit — card is still in its original form state.
+  // "answered" and consumes context. On failure, reverts card to submittable
+  // form state and resets submitted flag so user can re-submit.
   setImmediate(() => {
     injectAnswerSyntheticMessage(ctx, answers).catch((err) => {
       log.error(`unhandled error in injectAnswerSyntheticMessage: ${err}`);
@@ -341,7 +342,21 @@ export function handleAskUserAction(data: unknown, _cfg: ClawdbotConfig, account
   });
 
   log.info(`question ${operationId} submitted, synthetic message will be injected`);
-  return {};
+
+  // Return immediate visual feedback via Feishu callback response:
+  // - toast: ephemeral success message for the clicking user
+  // - card: replaces card content immediately for the clicking user
+  // Note: callback-return card does NOT consume a cardSequence number.
+  return {
+    toast: {
+      type: 'success' as const,
+      content: '已收到回答，正在处理...',
+    },
+    card: {
+      type: 'raw' as const,
+      data: processingCard,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -378,6 +393,25 @@ async function injectAnswerSyntheticMessage(ctx: QuestionContext, answers: Recor
     log: (msg: string) => log.info(msg),
     error: (msg: string) => log.error(msg),
   };
+
+  // Update card to "processing" state via API so ALL viewers see it (not just
+  // the clicking user — the callback-return card field only updates for the
+  // clicker). Per Feishu docs, delayed update must execute AFTER the callback
+  // response — since we're in setImmediate, the callback has already returned.
+  try {
+    const processingCard = buildProcessingCard(ctx.questions, answers);
+    ctx.cardSequence++;
+    await updateCardKitCard({
+      cfg: ctx.cfg,
+      cardId: ctx.cardId,
+      card: processingCard,
+      sequence: ctx.cardSequence,
+      accountId: ctx.accountId,
+    });
+  } catch (err) {
+    log.warn(`failed to update card to processing state via API: ${err}`);
+    // Non-fatal: the clicking user already sees the processing state via callback return.
+  }
 
   let lastError: unknown;
   for (let attempt = 0; attempt <= INJECT_MAX_RETRIES; attempt++) {
@@ -436,12 +470,20 @@ async function injectAnswerSyntheticMessage(ctx: QuestionContext, answers: Recor
   }
 
   // All retries exhausted — reset submitted flag so user can retry via card,
-  // and re-arm TTL so the entry doesn't live forever.
+  // revert card to submittable form state, and re-arm TTL.
   ctx.submitted = false;
   armTtlTimer(ctx, PENDING_QUESTION_TTL_MS);
   log.error(
     `synthetic message injection failed after ${INJECT_MAX_RETRIES + 1} attempts for question ${ctx.questionId}: ${lastError}`,
   );
+
+  // Revert card from "processing" back to interactive form so user can retry.
+  try {
+    await updateCardToSubmittable(ctx);
+    log.info(`reverted card to submittable state for question ${ctx.questionId}`);
+  } catch (err) {
+    log.warn(`failed to revert card to submittable state: ${err}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -696,6 +738,59 @@ function buildAnsweredCard(questions: QuestionItem[], answers: Record<string, st
   };
 }
 
+function buildProcessingCard(questions: QuestionItem[], answers: Record<string, string>): Record<string, unknown> {
+  const elements: Record<string, unknown>[] = [];
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const answer = answers[q.question] ?? '(no answer)';
+    if (i > 0) {
+      elements.push({ tag: 'hr' });
+    }
+    elements.push(
+      buildLabeledRow(
+        { tag: 'markdown', content: `**${q.header}**` },
+        { tag: 'markdown', content: `⏳ **${answer}**` },
+      ),
+    );
+  }
+
+  elements.push({
+    tag: 'markdown',
+    content: '正在处理你的回答...',
+    text_size: 'notation',
+  });
+
+  return {
+    schema: '2.0',
+    config: V2_CONFIG,
+    header: {
+      title: {
+        tag: 'plain_text',
+        content: '已提交回答',
+        i18n_content: { zh_cn: '已提交回答', en_us: 'Response Submitted' },
+      },
+      subtitle: {
+        tag: 'plain_text',
+        content: `共 ${questions.length} 个问题 · 正在处理`,
+        i18n_content: {
+          zh_cn: `共 ${questions.length} 个问题 · 正在处理`,
+          en_us: `${questions.length} question${questions.length > 1 ? 's' : ''} · Processing`,
+        },
+      },
+      text_tag_list: [
+        {
+          tag: 'text_tag',
+          text: { tag: 'plain_text', content: '处理中' },
+          color: 'turquoise',
+        },
+      ],
+      template: 'turquoise',
+    },
+    body: { elements },
+  };
+}
+
 function buildExpiredCard(questions: QuestionItem[]): Record<string, unknown> {
   const elements: Record<string, unknown>[] = [];
 
@@ -761,6 +856,18 @@ async function updateCardToAnswered(ctx: QuestionContext, answers: Record<string
 
 async function updateCardToExpired(ctx: QuestionContext): Promise<void> {
   const card = buildExpiredCard(ctx.questions);
+  ctx.cardSequence++;
+  await updateCardKitCard({
+    cfg: ctx.cfg,
+    cardId: ctx.cardId,
+    card,
+    sequence: ctx.cardSequence,
+    accountId: ctx.accountId,
+  });
+}
+
+async function updateCardToSubmittable(ctx: QuestionContext): Promise<void> {
+  const card = buildAskUserCard(ctx.questions, ctx.questionId);
   ctx.cardSequence++;
   await updateCardKitCard({
     cfg: ctx.cfg,
