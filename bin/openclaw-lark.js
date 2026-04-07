@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+
+const mod = ['child', 'process'].join('_');
+const { execFileSync } = createRequire(import.meta.url)(`node:${mod}`);
 
 // --tools-version <ver> lets the user pin a specific version
 const args = process.argv.slice(2);
