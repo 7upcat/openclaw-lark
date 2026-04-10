@@ -13,6 +13,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolveDefaultAgentId } from 'openclaw/plugin-sdk/agent-runtime';
+import { resolveStorePath } from 'openclaw/plugin-sdk/config-runtime';
 import type { ReplyPayload } from 'openclaw/plugin-sdk';
 import { SILENT_REPLY_TOKEN } from 'openclaw/plugin-sdk/reply-runtime';
 import { extractLarkApiCode } from '../core/api-error';
@@ -173,7 +174,7 @@ export class StreamingCardController {
 
       const sessionApi = runtime.agent?.session;
       if (sessionApi?.resolveStorePath && sessionApi?.loadSessionStore) {
-        const storePath = sessionApi.resolveStorePath(sessionStorePath);
+        const storePath = resolveStorePath(sessionStorePath, { agentId: this.deps.agentId });
         const store = sessionApi.loadSessionStore(storePath);
 
         let entry: Record<string, unknown> | undefined;
@@ -221,7 +222,7 @@ export class StreamingCardController {
         return undefined;
       }
 
-      const storePath = channelSession.resolveStorePath(sessionStorePath);
+      const storePath = resolveStorePath(sessionStorePath, { agentId: this.deps.agentId });
       const raw = await readFile(storePath, 'utf8');
       const parsed: unknown = JSON.parse(raw);
       const store =
@@ -269,6 +270,16 @@ export class StreamingCardController {
       return metrics;
     } catch (err) {
       log.warn('footer metrics lookup failed', { error: String(err), sessionKey: this.deps.sessionKey });
+      return undefined;
+    }
+  }
+
+  private async getSettledFooterSessionMetrics(): Promise<FooterSessionMetrics | undefined> {
+    if (!this.needsFooterMetrics()) return undefined;
+    try {
+      return await this.getFooterSessionMetrics();
+    } catch (err) {
+      log.warn('footer metrics settle failed', { error: String(err), sessionKey: this.deps.sessionKey });
       return undefined;
     }
   }
@@ -606,7 +617,7 @@ export class StreamingCardController {
     if (this.cardCreationPromise) await this.cardCreationPromise;
 
     const errorEffectiveCardId = this.cardKit.cardKitCardId ?? this.cardKit.originalCardKitCardId;
-    const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+    const footerMetrics = await this.getSettledFooterSessionMetrics();
     const toolUseDisplay = this.computeToolUseDisplay();
     try {
       if (this.cardKit.cardMessageId) {
@@ -706,7 +717,7 @@ export class StreamingCardController {
           },
           this.imageResolver,
         );
-        const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+        const footerMetrics = await this.getSettledFooterSessionMetrics();
 
         const completeCard = buildCardContent('complete', {
           text: terminalContent.text,
@@ -788,7 +799,7 @@ export class StreamingCardController {
         },
         this.imageResolver,
       );
-      const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+      const footerMetrics = await this.getSettledFooterSessionMetrics();
       if (effectiveCardId) {
         const abortCardContent = buildCardContent('complete', {
           text: terminalContent.text,
