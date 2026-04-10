@@ -21,6 +21,9 @@ import { handleCardAction } from '../tools/auto-auth';
 import { handleAskUserAction } from '../tools/ask-user-question';
 import { buildQueueKey, enqueueFeishuChatTask, getActiveDispatcher, hasActiveTask } from './chat-queue';
 import { extractRawTextFromEvent, isLikelyAbortText } from './abort-detect';
+import { enqueueSessionPendingMessage } from './session-pending-queue';
+import { trySteerSessionViaProvider } from './session-continuation-provider';
+import { addReactionFeishu } from '../messaging/outbound/reactions';
 import type { MonitorContext } from './types';
 
 const elog = larkLogger('channel/event-handlers');
@@ -65,6 +68,9 @@ export async function handleMessageEvent(ctx: MonitorContext, data: unknown): Pr
   const { accountId, log, error } = ctx;
   try {
     const event = data as FeishuMessageEvent;
+    const feishuCfg = ctx.cfg.channels?.feishu ?? {};
+    const steerTimeoutMs = Math.max(1, feishuCfg.steerTimeoutMs ?? 1000);
+    const steerRetryDelayMs = Math.max(1, feishuCfg.steerRetryDelayMs ?? 500);
     const msgId = event.message?.message_id ?? 'unknown';
     const chatId = event.message?.chat_id ?? '';
     // In topic groups, reply events carry root_id but not thread_id.
@@ -104,36 +110,72 @@ export async function handleMessageEvent(ctx: MonitorContext, data: unknown): Pr
       }
     }
 
-    const { status } = enqueueFeishuChatTask({
-      accountId,
-      chatId,
-      threadId,
-      task: async () => {
-        try {
-          await withTicket(
-            {
-              messageId: msgId,
-              chatId,
-              accountId,
-              startTime: Date.now(),
-              senderOpenId: event.sender?.sender_id?.open_id || '',
-              chatType: (event.message?.chat_type as 'p2p' | 'group') || undefined,
-              threadId,
-            },
-            () =>
-              handleFeishuMessage({
-                cfg: ctx.cfg,
-                event,
-                botOpenId: ctx.lark.botOpenId,
-                runtime: ctx.runtime,
-                chatHistories: ctx.chatHistories,
+    const queueKey = buildQueueKey(accountId, chatId, threadId);
+    const promptText = extractRawTextFromEvent(event);
+    const dispatchNow = (): void => {
+      void enqueueFeishuChatTask({
+        accountId,
+        chatId,
+        threadId,
+        task: async () => {
+          try {
+            await withTicket(
+              {
+                messageId: msgId,
+                chatId,
                 accountId,
-              }),
-          );
-        } catch (err) {
-          error(`feishu[${accountId}]: error handling message: ${String(err)}`);
-        }
-      },
+                startTime: Date.now(),
+                senderOpenId: event.sender?.sender_id?.open_id || '',
+                chatType: (event.message?.chat_type as 'p2p' | 'group') || undefined,
+                threadId,
+              },
+              () =>
+                handleFeishuMessage({
+                  cfg: ctx.cfg,
+                  event,
+                  botOpenId: ctx.lark.botOpenId,
+                  runtime: ctx.runtime,
+                  chatHistories: ctx.chatHistories,
+                  accountId,
+                }),
+            );
+          } catch (err) {
+            error(`feishu[${accountId}]: error handling message: ${String(err)}`);
+          }
+        },
+      });
+    };
+
+    const { status } = enqueueSessionPendingMessage({
+      sessionKey: queueKey,
+      dispatchNow,
+      trySteer: promptText
+        ? async () => {
+            const active = getActiveDispatcher(queueKey);
+            return await trySteerSessionViaProvider({
+              sessionKey: active?.sessionKey,
+              prompt: promptText,
+              accountId,
+              messageId: msgId,
+              timeoutMs: steerTimeoutMs,
+            });
+          }
+        : undefined,
+      onSteerSuccess: promptText
+        ? async () => {
+            try {
+              await addReactionFeishu({
+                cfg: ctx.cfg,
+                messageId: msgId,
+                emojiType: 'JIAYI',
+                accountId,
+              });
+            } catch (err) {
+              error(`feishu[${accountId}]: failed to add steer reaction on ${msgId}: ${String(err)}`);
+            }
+          }
+        : undefined,
+      steerRetryDelayMs,
     });
     log(`feishu[${accountId}]: message ${msgId} in chat ${chatId}${threadId ? ` thread ${threadId}` : ''} — ${status}`);
   } catch (err) {

@@ -203,11 +203,11 @@ export function compactNumber(value: number): string {
   const abs = Math.abs(value);
   if (abs >= 1_000_000) {
     const m = value / 1_000_000;
-    return Math.abs(m) >= 100 ? `${Math.round(m)}m` : `${m.toFixed(1)}m`;
+    return `${m.toFixed(1)}m`;
   }
   if (abs >= 1_000) {
     const k = value / 1_000;
-    return Math.abs(k) >= 100 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`;
+    return `${k.toFixed(1)}k`;
   }
   return `${Math.round(value)}`;
 }
@@ -264,9 +264,15 @@ export function formatFooterRuntimeSegments(params: {
   // --- Detail line: tokens, cache, context ---
 
   if (footer?.tokens && metrics) {
+    const freshTotal = metrics.totalTokensFresh === false ? undefined : metrics.totalTokens;
+    const total = typeof freshTotal === 'number' ? Math.max(0, freshTotal) : undefined;
     const inTokens = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
     const outTokens = typeof metrics.outputTokens === 'number' ? Math.max(0, metrics.outputTokens) : undefined;
-    if (inTokens != null && outTokens != null) {
+    if (total != null) {
+      const totalLabel = compactNumber(total);
+      detailZh.push(`Tokens ${totalLabel}`);
+      detailEn.push(`Tokens ${totalLabel}`);
+    } else if (inTokens != null && outTokens != null) {
       const inLabel = compactNumber(inTokens);
       const outLabel = compactNumber(outTokens);
       detailZh.push(`↑ ${inLabel} ↓ ${outLabel}`);
@@ -400,17 +406,6 @@ function buildStreamingCard(
   const elements: CardElement[] = [];
   const hasToolUse = Boolean(toolUseSteps?.length);
 
-  if (showToolUse) {
-    elements.push(
-      hasToolUse
-        ? buildToolUsePanel({
-            toolUseSteps,
-            titleSuffix: toolUseTitleSuffix,
-          })
-        : buildStreamingToolUsePendingPanel(),
-    );
-  }
-
   if (!partialText && reasoningText) {
     // Reasoning phase: show reasoning content in notation style
     elements.push({
@@ -428,6 +423,15 @@ function buildStreamingCard(
       tag: 'markdown',
       content: optimizeMarkdownStyle(partialText),
     });
+  }
+
+  if (showToolUse && hasToolUse) {
+    elements.push(
+      buildToolUsePanel({
+        toolUseSteps,
+        titleSuffix: toolUseTitleSuffix,
+      }),
+    );
   }
 
   return {
@@ -472,16 +476,7 @@ function buildCompleteCard(params: {
     footerMetrics,
   } = params;
   const elements: CardElement[] = [];
-
-  if (showToolUse) {
-    elements.push(
-      buildToolUsePanel({
-        toolUseSteps,
-        toolUseElapsedMs,
-        titleSuffix: toolUseTitleSuffix,
-      }),
-    );
-  }
+  const hasToolUse = Boolean(toolUseSteps?.length);
 
   // Collapsible reasoning panel (before main content)
   if (reasoningText) {
@@ -527,6 +522,16 @@ function buildCompleteCard(params: {
     tag: 'markdown',
     content: optimizeMarkdownStyle(text),
   });
+
+  if (showToolUse && hasToolUse) {
+    elements.push(
+      buildToolUsePanel({
+        toolUseSteps,
+        toolUseElapsedMs,
+        titleSuffix: toolUseTitleSuffix,
+      }),
+    );
+  }
 
   // Footer meta-info: split into two lines for readability.
   // Line 1 (primary): status · elapsed · model
@@ -672,12 +677,6 @@ export function buildStreamingPreAnswerCard(params: {
   const hasSteps = Boolean(steps?.length);
   const elements: unknown[] = [];
 
-  if (showToolUse) {
-    elements.push(
-      hasSteps ? buildStreamingToolUseActivePanel({ steps: steps!, elapsedMs }) : buildStreamingToolUsePendingPanel(),
-    );
-  }
-
   elements.push({
     tag: 'markdown',
     content: '',
@@ -697,6 +696,10 @@ export function buildStreamingPreAnswerCard(params: {
     },
     element_id: 'loading_icon',
   });
+
+  if (showToolUse && hasSteps) {
+    elements.push(buildStreamingToolUseActivePanel({ steps: steps!, elapsedMs }));
+  }
 
   return {
     schema: '2.0',
@@ -771,38 +774,6 @@ export function toCardKit2(card: FeishuCard): Record<string, unknown> {
   };
   if (card.header) result.header = card.header;
   return result;
-}
-
-function buildStreamingToolUsePendingPanel(): CardElement {
-  return {
-    tag: 'collapsible_panel',
-    expanded: false,
-    header: {
-      title: {
-        tag: 'plain_text',
-        content: '🛠️ Tool use pending',
-        i18n_content: {
-          zh_cn: '🛠️ 等待工具执行',
-          en_us: '🛠️ Tool use pending',
-        },
-        text_color: 'grey',
-        text_size: 'notation',
-      },
-      vertical_align: 'center',
-      icon: {
-        tag: 'standard_icon',
-        token: 'down-small-ccm_outlined',
-        color: 'grey',
-        size: '16px 16px',
-      },
-      icon_position: 'right',
-      icon_expanded_angle: -180,
-    },
-    border: { color: 'grey', corner_radius: '5px' },
-    vertical_spacing: '4px',
-    padding: '8px 8px 8px 8px',
-    elements: [],
-  };
 }
 
 function buildToolUsePanel(params: {
