@@ -47,7 +47,7 @@ import { FlushController } from './flush-controller';
 import { ImageResolver } from './image-resolver';
 import { optimizeMarkdownStyle } from './markdown-style';
 import { type ToolUseDisplayResult, buildToolUseTitleSuffix, normalizeToolUseDisplay } from './tool-use-display';
-import { clearToolUseTraceRun, getToolUseTraceSteps } from './tool-use-trace-store';
+import { clearToolUseTraceRun, getToolUseTraceSteps, recordToolUseEnd, recordToolUseStart } from './tool-use-trace-store';
 import type {
   CardKitState,
   CardPhase,
@@ -538,11 +538,15 @@ export class StreamingCardController {
     await this.throttledCardUpdate();
   }
 
-  async onToolPayload(_payload: ReplyPayload): Promise<void> {
+  async onToolPayload(
+    payload: ReplyPayload,
+    meta?: { toolCallId?: string; toolStatus?: string },
+  ): Promise<void> {
     if (!this.shouldProceed('onToolPayload')) return;
     if (!this.shouldDisplayToolUse) return;
 
     this.markToolUseActivity();
+    this.recordToolPayload(payload, meta);
 
     await this.ensureCardCreated();
     if (!this.shouldProceed('onToolPayload.postCreate')) return;
@@ -552,6 +556,44 @@ export class StreamingCardController {
       return;
     }
     await this.throttledCardUpdate();
+  }
+
+  private recordToolPayload(payload: ReplyPayload, meta?: { toolCallId?: string; toolStatus?: string }): void {
+    const parsed = parseToolPayload(payload.text);
+    if (!parsed) return;
+
+    const status = (meta?.toolStatus ?? '').trim().toLowerCase();
+    const params = parsed.detail ? { description: parsed.detail } : undefined;
+
+    if (status === 'in_progress' || status === 'running' || status === 'start' || status === 'started') {
+      recordToolUseStart({
+        sessionKey: this.deps.sessionKey,
+        toolName: parsed.title,
+        toolParams: params,
+        toolCallId: meta?.toolCallId,
+      });
+      return;
+    }
+
+    if (status === 'completed' || status === 'complete' || status === 'done') {
+      recordToolUseEnd({
+        sessionKey: this.deps.sessionKey,
+        toolName: parsed.title,
+        toolParams: params,
+        toolCallId: meta?.toolCallId,
+      });
+      return;
+    }
+
+    if (status === 'error' || status === 'failed' || status === 'failure' || status === 'cancelled' || status === 'canceled') {
+      recordToolUseEnd({
+        sessionKey: this.deps.sessionKey,
+        toolName: parsed.title,
+        toolParams: params,
+        toolCallId: meta?.toolCallId,
+        error: status,
+      });
+    }
   }
 
   async onPartialReply(payload: ReplyPayload): Promise<void> {
@@ -1161,6 +1203,30 @@ export class StreamingCardController {
       accountId: this.deps.accountId,
     });
   }
+}
+
+function parseToolPayload(text?: string): { title: string; detail?: string } | null {
+  const raw = text?.trim();
+  if (!raw) return null;
+
+  const summary = raw.replace(/^🧰\s*Tool Call:\s*/i, '').trim();
+  if (!summary) return null;
+
+  const [head, ...rest] = summary.split(/\s*·\s*/);
+  const title = head
+    .replace(/,\s*status=.*$/i, '')
+    .trim();
+  if (!title) return null;
+
+  const detail = rest
+    .filter((part) => !/^status=/i.test(part.trim()))
+    .join(' · ')
+    .trim();
+
+  return {
+    title,
+    detail: detail || undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
