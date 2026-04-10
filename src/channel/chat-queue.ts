@@ -17,6 +17,7 @@ type QueueStatus = 'queued' | 'immediate';
 export interface ActiveDispatcherEntry {
   abortCard: () => Promise<void>;
   abortController?: AbortController;
+  sessionKey?: string;
 }
 
 const chatQueues = new Map<string, Promise<void>>();

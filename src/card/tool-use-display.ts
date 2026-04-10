@@ -127,7 +127,7 @@ const TOOL_DESCRIPTORS: ToolDescriptor[] = [
     summaryPatterns: [/^(?:search\s+files(?:\s+by\s+pattern)?|glob)\s+(.+)$/i],
   },
   {
-    aliases: ['exec', 'bash', 'command', 'run'],
+    aliases: ['exec', 'bash', 'command', 'run', 'commandexecution', 'command_execution'],
     iconToken: 'setting_outlined',
     title: 'Run command',
     sanitizer: 'command',
@@ -136,13 +136,22 @@ const TOOL_DESCRIPTORS: ToolDescriptor[] = [
     summaryPreference: ['code', 'quoted', 'matched', 'line'],
   },
   {
-    aliases: ['browser', 'playwright', 'navigate'],
+    aliases: ['browser', 'playwright', 'navigate', 'websearch', 'web_search'],
     iconToken: 'browser-mac_outlined',
     title: 'Browser',
     sanitizer: 'url',
     paramKeys: ['url'],
     summaryPatterns: [/^(?:open|browse|visit|navigate\s+to)\s+(.+)$/i],
     summaryPreference: ['url', 'quoted', 'matched', 'line'],
+  },
+  {
+    aliases: ['filechange', 'file_change', 'apply_patch'],
+    iconToken: 'edit_outlined',
+    title: 'Edit',
+    sanitizer: 'path',
+    paramKeys: ['path', 'file', 'target'],
+    summaryPatterns: [/^(?:edit|patch|apply[_ ]patch)\s+(.+)$/i],
+    summaryPreference: ['code', 'quoted', 'matched', 'line'],
   },
   {
     aliases: ['agent', 'task', 'spawn'],

@@ -13,6 +13,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolveDefaultAgentId } from 'openclaw/plugin-sdk/agent-runtime';
+import { resolveStorePath } from 'openclaw/plugin-sdk/config-runtime';
 import type { ReplyPayload } from 'openclaw/plugin-sdk';
 import { SILENT_REPLY_TOKEN } from 'openclaw/plugin-sdk/reply-runtime';
 import { extractLarkApiCode } from '../core/api-error';
@@ -46,7 +47,7 @@ import { FlushController } from './flush-controller';
 import { ImageResolver } from './image-resolver';
 import { optimizeMarkdownStyle } from './markdown-style';
 import { type ToolUseDisplayResult, buildToolUseTitleSuffix, normalizeToolUseDisplay } from './tool-use-display';
-import { clearToolUseTraceRun, getToolUseTraceSteps } from './tool-use-trace-store';
+import { clearToolUseTraceRun, getToolUseTraceSteps, recordToolUseEnd, recordToolUseStart } from './tool-use-trace-store';
 import type {
   CardKitState,
   CardPhase,
@@ -173,7 +174,7 @@ export class StreamingCardController {
 
       const sessionApi = runtime.agent?.session;
       if (sessionApi?.resolveStorePath && sessionApi?.loadSessionStore) {
-        const storePath = sessionApi.resolveStorePath(sessionStorePath);
+        const storePath = resolveStorePath(sessionStorePath, { agentId: this.deps.agentId });
         const store = sessionApi.loadSessionStore(storePath);
 
         let entry: Record<string, unknown> | undefined;
@@ -221,7 +222,7 @@ export class StreamingCardController {
         return undefined;
       }
 
-      const storePath = channelSession.resolveStorePath(sessionStorePath);
+      const storePath = resolveStorePath(sessionStorePath, { agentId: this.deps.agentId });
       const raw = await readFile(storePath, 'utf8');
       const parsed: unknown = JSON.parse(raw);
       const store =
@@ -269,6 +270,16 @@ export class StreamingCardController {
       return metrics;
     } catch (err) {
       log.warn('footer metrics lookup failed', { error: String(err), sessionKey: this.deps.sessionKey });
+      return undefined;
+    }
+  }
+
+  private async getSettledFooterSessionMetrics(): Promise<FooterSessionMetrics | undefined> {
+    if (!this.needsFooterMetrics()) return undefined;
+    try {
+      return await this.getFooterSessionMetrics();
+    } catch (err) {
+      log.warn('footer metrics settle failed', { error: String(err), sessionKey: this.deps.sessionKey });
       return undefined;
     }
   }
@@ -527,11 +538,15 @@ export class StreamingCardController {
     await this.throttledCardUpdate();
   }
 
-  async onToolPayload(_payload: ReplyPayload): Promise<void> {
+  async onToolPayload(
+    payload: ReplyPayload,
+    meta?: { toolCallId?: string; toolStatus?: string },
+  ): Promise<void> {
     if (!this.shouldProceed('onToolPayload')) return;
     if (!this.shouldDisplayToolUse) return;
 
     this.markToolUseActivity();
+    this.recordToolPayload(payload, meta);
 
     await this.ensureCardCreated();
     if (!this.shouldProceed('onToolPayload.postCreate')) return;
@@ -541,6 +556,44 @@ export class StreamingCardController {
       return;
     }
     await this.throttledCardUpdate();
+  }
+
+  private recordToolPayload(payload: ReplyPayload, meta?: { toolCallId?: string; toolStatus?: string }): void {
+    const parsed = parseToolPayload(payload.text);
+    if (!parsed) return;
+
+    const status = (meta?.toolStatus ?? '').trim().toLowerCase();
+    const params = parsed.detail ? { description: parsed.detail } : undefined;
+
+    if (status === 'in_progress' || status === 'running' || status === 'start' || status === 'started') {
+      recordToolUseStart({
+        sessionKey: this.deps.sessionKey,
+        toolName: parsed.title,
+        toolParams: params,
+        toolCallId: meta?.toolCallId,
+      });
+      return;
+    }
+
+    if (status === 'completed' || status === 'complete' || status === 'done') {
+      recordToolUseEnd({
+        sessionKey: this.deps.sessionKey,
+        toolName: parsed.title,
+        toolParams: params,
+        toolCallId: meta?.toolCallId,
+      });
+      return;
+    }
+
+    if (status === 'error' || status === 'failed' || status === 'failure' || status === 'cancelled' || status === 'canceled') {
+      recordToolUseEnd({
+        sessionKey: this.deps.sessionKey,
+        toolName: parsed.title,
+        toolParams: params,
+        toolCallId: meta?.toolCallId,
+        error: status,
+      });
+    }
   }
 
   async onPartialReply(payload: ReplyPayload): Promise<void> {
@@ -606,7 +659,7 @@ export class StreamingCardController {
     if (this.cardCreationPromise) await this.cardCreationPromise;
 
     const errorEffectiveCardId = this.cardKit.cardKitCardId ?? this.cardKit.originalCardKitCardId;
-    const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+    const footerMetrics = await this.getSettledFooterSessionMetrics();
     const toolUseDisplay = this.computeToolUseDisplay();
     try {
       if (this.cardKit.cardMessageId) {
@@ -706,7 +759,7 @@ export class StreamingCardController {
           },
           this.imageResolver,
         );
-        const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+        const footerMetrics = await this.getSettledFooterSessionMetrics();
 
         const completeCard = buildCardContent('complete', {
           text: terminalContent.text,
@@ -788,7 +841,7 @@ export class StreamingCardController {
         },
         this.imageResolver,
       );
-      const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+      const footerMetrics = await this.getSettledFooterSessionMetrics();
       if (effectiveCardId) {
         const abortCardContent = buildCardContent('complete', {
           text: terminalContent.text,
@@ -1150,6 +1203,30 @@ export class StreamingCardController {
       accountId: this.deps.accountId,
     });
   }
+}
+
+function parseToolPayload(text?: string): { title: string; detail?: string } | null {
+  const raw = text?.trim();
+  if (!raw) return null;
+
+  const summary = raw.replace(/^🧰\s*Tool Call:\s*/i, '').trim();
+  if (!summary) return null;
+
+  const [head, ...rest] = summary.split(/\s*·\s*/);
+  const title = head
+    .replace(/,\s*status=.*$/i, '')
+    .trim();
+  if (!title) return null;
+
+  const detail = rest
+    .filter((part) => !/^status=/i.test(part.trim()))
+    .join(' · ')
+    .trim();
+
+  return {
+    title,
+    detail: detail || undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------

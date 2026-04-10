@@ -179,7 +179,7 @@ async function dispatchNormalMessage(
   // Register the active dispatcher so the monitor abort fast-path can
   // terminate the streaming card before this task completes.
   const queueKey = buildQueueKey(dc.account.accountId, dc.ctx.chatId, dc.ctx.threadId);
-  registerActiveDispatcher(queueKey, { abortCard, abortController });
+  registerActiveDispatcher(queueKey, { abortCard, abortController, sessionKey: effectiveSessionKey });
 
   dc.log(`feishu[${dc.account.accountId}]: dispatching to agent (session=${effectiveSessionKey})`);
   log.info(`dispatching to agent (session=${effectiveSessionKey})`);

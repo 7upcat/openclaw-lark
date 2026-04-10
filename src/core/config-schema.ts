@@ -193,6 +193,8 @@ export const FeishuAccountConfigSchema = z.object({
   dedup: DedupSchema,
   reactionNotifications: ReactionNotificationModeSchema,
   threadSession: z.boolean().optional(),
+  steerTimeoutMs: z.number().int().positive().optional(),
+  steerRetryDelayMs: z.number().int().positive().optional(),
   uat: UATConfigSchema,
 });
 
