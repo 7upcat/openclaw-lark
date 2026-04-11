@@ -20,6 +20,7 @@ export interface ToolUseDisplayStep {
   detail?: string;
   iconToken: string;
   status: ToolUseStepStatus;
+  durationMs?: number;
   resultBlock?: ToolUseDisplayBlock;
   errorBlock?: ToolUseDisplayBlock;
 }
@@ -236,6 +237,7 @@ function formatToolStep(
     detail,
     iconToken: descriptor?.iconToken ?? 'setting-inter_outlined',
     status,
+    durationMs: source.durationMs,
     resultBlock,
     errorBlock,
   };

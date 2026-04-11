@@ -178,6 +178,9 @@ export function formatToolUseDuration(ms: number): { zh: string; en: string } {
  * Format milliseconds into a human-readable duration string.
  */
 export function formatElapsed(ms: number): string {
+  if (ms < 1000) {
+    return `${Math.max(1, Math.round(ms))} ms`;
+  }
   const seconds = ms / 1000;
   return seconds < 60 ? `${seconds.toFixed(1)}s` : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
@@ -723,7 +726,12 @@ function buildStreamingToolUseActivePanel(params: { steps: ToolUseDisplayStep[];
   const { steps, elapsedMs } = params;
   const enParts = ['Tool use'];
   const zhParts = ['工具执行'];
+  const activeStepTitle = formatActiveToolUseStepTitle(steps);
 
+  if (activeStepTitle) {
+    enParts.push(activeStepTitle);
+    zhParts.push(activeStepTitle);
+  }
   if (steps.length > 0) {
     enParts.push(`${steps.length} step${steps.length === 1 ? '' : 's'}`);
     zhParts.push(`${steps.length} 步`);
@@ -737,7 +745,7 @@ function buildStreamingToolUseActivePanel(params: { steps: ToolUseDisplayStep[];
 
   return {
     tag: 'collapsible_panel',
-    expanded: true,
+    expanded: false,
     header: {
       title: {
         tag: 'plain_text',
@@ -764,6 +772,19 @@ function buildStreamingToolUseActivePanel(params: { steps: ToolUseDisplayStep[];
     padding: '8px 8px 8px 8px',
     elements: steps.flatMap((step) => buildToolUseStepElements(step)),
   };
+}
+
+function formatActiveToolUseStepTitle(steps: ToolUseDisplayStep[]): string | null {
+  const activeStep = [...steps].reverse().find((step) => step.status === 'running') ?? steps.at(-1);
+  if (!activeStep) return null;
+  const detail = activeStep.detail?.trim();
+  const title = detail ? `${activeStep.title}: ${detail}` : activeStep.title;
+  return truncateToolUsePanelTitle(title);
+}
+
+function truncateToolUsePanelTitle(title: string): string {
+  const normalized = title.replace(/\s+/g, ' ').trim();
+  return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
 }
 
 export function toCardKit2(card: FeishuCard): Record<string, unknown> {

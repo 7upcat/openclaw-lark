@@ -446,6 +446,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       controller?.markFullyComplete();
     },
     abortCard,
+    handleAcpToolEvent: async (event) => {
+      if (!controller) return;
+      await controller.onAcpToolEvent(event);
+    },
   };
 }
 

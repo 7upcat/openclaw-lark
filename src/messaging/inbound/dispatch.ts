@@ -28,6 +28,7 @@ import {
   threadScopedKey,
   unregisterActiveDispatcher,
 } from '../../channel/chat-queue';
+import { registerCodexAcpToolCallback } from '../../channel/acp-tool-callback';
 import { resolveToolUseDisplayConfig } from '../../card/tool-use-config';
 import { clearToolUseTraceRun, startToolUseTraceRun } from '../../card/tool-use-trace-store';
 import { isLikelyAbortText } from '../../channel/abort-detect';
@@ -159,7 +160,7 @@ async function dispatchNormalMessage(
     clearToolUseTraceRun(effectiveSessionKey);
   }
 
-  const { dispatcher, replyOptions, markDispatchIdle, markFullyComplete, abortCard } = createFeishuReplyDispatcher({
+  const { dispatcher, replyOptions, markDispatchIdle, markFullyComplete, abortCard, handleAcpToolEvent } = createFeishuReplyDispatcher({
     cfg: dc.accountScopedCfg,
     agentId: dc.route.agentId,
     chatId: dc.ctx.chatId,
@@ -180,6 +181,9 @@ async function dispatchNormalMessage(
   // terminate the streaming card before this task completes.
   const queueKey = buildQueueKey(dc.account.accountId, dc.ctx.chatId, dc.ctx.threadId);
   registerActiveDispatcher(queueKey, { abortCard, abortController, sessionKey: effectiveSessionKey });
+  if (toolUseDisplay.showToolUse) {
+    registerCodexAcpToolCallback(effectiveSessionKey, handleAcpToolEvent);
+  }
 
   dc.log(`feishu[${dc.account.accountId}]: dispatching to agent (session=${effectiveSessionKey})`);
   log.info(`dispatching to agent (session=${effectiveSessionKey})`);

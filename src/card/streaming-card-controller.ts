@@ -51,6 +51,7 @@ import { clearToolUseTraceRun, getToolUseTraceSteps, recordToolUseEnd, recordToo
 import type {
   CardKitState,
   CardPhase,
+  AcpToolCallbackEvent,
   FooterSessionMetrics,
   ReasoningState,
   StreamingCardDeps,
@@ -112,6 +113,7 @@ export class StreamingCardController {
     elapsedMs: 0,
     isActive: false,
   };
+  private lastToolUseDisplay: ToolUseDisplayResult | null = null;
   // ---- Sub-controllers ----
   private readonly flush: FlushController;
   private readonly guard: UnavailableGuard;
@@ -362,11 +364,16 @@ export class StreamingCardController {
   private computeToolUseDisplay(): ToolUseDisplayResult | null {
     if (!this.shouldDisplayToolUse) return null;
     const traceSteps = getToolUseTraceSteps(this.deps.sessionKey);
-    return normalizeToolUseDisplay({
+    const display = normalizeToolUseDisplay({
       traceSteps,
       showFullPaths: this.deps.toolUseDisplay.showFullPaths,
       showResultDetails: this.deps.toolUseDisplay.showToolResultDetails,
     });
+    if (display.stepCount > 0) {
+      this.lastToolUseDisplay = display;
+      return display;
+    }
+    return this.lastToolUseDisplay;
   }
 
   private get visibleToolUseElapsedMs(): number | undefined {
@@ -374,6 +381,12 @@ export class StreamingCardController {
       return undefined;
     }
     return this.toolUse.elapsedMs || Date.now() - this.toolUse.startedAt;
+  }
+
+  private computeToolUseStepElapsedMs(display: ToolUseDisplayResult | null): number | undefined {
+    if (!display?.steps.length) return undefined;
+    const total = display.steps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0);
+    return total > 0 ? total : undefined;
   }
 
   private computeToolUseTitleSuffix(display: ToolUseDisplayResult | null): { zh: string; en: string } | undefined {
@@ -558,6 +571,23 @@ export class StreamingCardController {
     await this.throttledCardUpdate();
   }
 
+  async onAcpToolEvent(event: AcpToolCallbackEvent): Promise<void> {
+    if (!this.shouldProceed('onAcpToolEvent')) return;
+    if (!this.shouldDisplayToolUse) return;
+
+    this.markToolUseActivity();
+    this.recordAcpToolEvent(event);
+
+    await this.ensureCardCreated();
+    if (!this.shouldProceed('onAcpToolEvent.postCreate')) return;
+    if (!this.cardKit.cardMessageId) return;
+    if (!this.text.accumulatedText && this.cardKit.cardKitCardId) {
+      await this.throttledToolUseStatusUpdate();
+      return;
+    }
+    await this.throttledCardUpdate();
+  }
+
   private recordToolPayload(payload: ReplyPayload, meta?: { toolCallId?: string; toolStatus?: string }): void {
     const parsed = parseToolPayload(payload.text);
     if (!parsed) return;
@@ -592,6 +622,53 @@ export class StreamingCardController {
         toolParams: params,
         toolCallId: meta?.toolCallId,
         error: status,
+      });
+    }
+  }
+
+  private recordAcpToolEvent(event: AcpToolCallbackEvent): void {
+    const parsed = parseToolPayload(event.text);
+    const toolName = normalizeToolEventText(event.toolName) ?? normalizeToolEventText(event.title) ?? parsed?.title;
+    if (!toolName) return;
+
+    const status = normalizeToolEventStatus(event.toolStatus ?? event.status);
+    const toolParams = event.toolParams ?? (parsed?.detail ? { description: parsed.detail } : undefined);
+    const toolCallId = normalizeToolEventText(event.toolCallId);
+    const toolRunId = normalizeToolEventText(event.toolRunId);
+    const durationMs =
+      typeof event.toolDurationMs === 'number' && Number.isFinite(event.toolDurationMs) ? event.toolDurationMs : undefined;
+
+    log.info('acp tool event received', {
+      sessionKey: this.deps.sessionKey,
+      toolCallId,
+      toolName,
+      status,
+      hasParams: Boolean(toolParams),
+      hasResult: event.toolResult !== undefined,
+      hasError: Boolean(event.toolError),
+    });
+
+    if (status === 'start') {
+      recordToolUseStart({
+        sessionKey: this.deps.sessionKey,
+        toolName,
+        toolParams,
+        toolCallId,
+        runId: toolRunId,
+      });
+      return;
+    }
+
+    if (status === 'complete' || status === 'error') {
+      recordToolUseEnd({
+        sessionKey: this.deps.sessionKey,
+        toolName,
+        toolParams,
+        toolCallId,
+        runId: toolRunId,
+        result: event.toolResult,
+        error: status === 'error' ? normalizeToolEventText(event.toolError) ?? 'error' : undefined,
+        durationMs,
       });
     }
   }
@@ -679,7 +756,7 @@ export class StreamingCardController {
           reasoningElapsedMs: this.reasoning.reasoningElapsedMs || undefined,
           toolUseSteps: toolUseDisplay?.steps,
           toolUseTitleSuffix: this.computeToolUseTitleSuffix(toolUseDisplay),
-          toolUseElapsedMs: this.visibleToolUseElapsedMs,
+          toolUseElapsedMs: this.computeToolUseStepElapsedMs(toolUseDisplay),
           showToolUse: this.deps.toolUseDisplay.showToolUse,
           elapsedMs: this.elapsed(),
           isError: true,
@@ -767,7 +844,7 @@ export class StreamingCardController {
           reasoningElapsedMs: this.reasoning.reasoningElapsedMs || undefined,
           toolUseSteps: idleToolUseDisplay?.steps,
           toolUseTitleSuffix: this.computeToolUseTitleSuffix(idleToolUseDisplay),
-          toolUseElapsedMs: this.visibleToolUseElapsedMs,
+          toolUseElapsedMs: this.computeToolUseStepElapsedMs(idleToolUseDisplay),
           showToolUse: this.deps.toolUseDisplay.showToolUse,
           elapsedMs: this.elapsed(),
           footer: this.deps.resolvedFooter,
@@ -849,7 +926,7 @@ export class StreamingCardController {
           reasoningElapsedMs: this.reasoning.reasoningElapsedMs || undefined,
           toolUseSteps: abortToolUseDisplay?.steps,
           toolUseTitleSuffix: this.computeToolUseTitleSuffix(abortToolUseDisplay),
-          toolUseElapsedMs: this.visibleToolUseElapsedMs,
+          toolUseElapsedMs: this.computeToolUseStepElapsedMs(abortToolUseDisplay),
           showToolUse: this.deps.toolUseDisplay.showToolUse,
           elapsedMs,
           isAborted: true,
@@ -866,7 +943,7 @@ export class StreamingCardController {
           reasoningElapsedMs: this.reasoning.reasoningElapsedMs || undefined,
           toolUseSteps: abortToolUseDisplay?.steps,
           toolUseTitleSuffix: this.computeToolUseTitleSuffix(abortToolUseDisplay),
-          toolUseElapsedMs: this.visibleToolUseElapsedMs,
+          toolUseElapsedMs: this.computeToolUseStepElapsedMs(abortToolUseDisplay),
           showToolUse: this.deps.toolUseDisplay.showToolUse,
           elapsedMs,
           isAborted: true,
@@ -1227,6 +1304,34 @@ function parseToolPayload(text?: string): { title: string; detail?: string } | n
     title,
     detail: detail || undefined,
   };
+}
+
+function normalizeToolEventText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeToolEventStatus(value: unknown): 'start' | 'update' | 'complete' | 'error' | undefined {
+  const normalized = normalizeToolEventText(value)?.toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'start' || normalized === 'started' || normalized === 'running' || normalized === 'in_progress') {
+    return 'start';
+  }
+  if (normalized === 'complete' || normalized === 'completed' || normalized === 'done' || normalized === 'success') {
+    return 'complete';
+  }
+  if (
+    normalized === 'error' ||
+    normalized === 'failed' ||
+    normalized === 'failure' ||
+    normalized === 'cancelled' ||
+    normalized === 'canceled'
+  ) {
+    return 'error';
+  }
+  if (normalized === 'update' || normalized === 'output') {
+    return 'update';
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

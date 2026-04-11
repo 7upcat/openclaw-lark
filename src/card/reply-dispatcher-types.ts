@@ -149,6 +149,7 @@ export interface FeishuReplyDispatcherResult {
   markDispatchIdle: () => void;
   markFullyComplete: () => void;
   abortCard: () => Promise<void>;
+  handleAcpToolEvent: (event: AcpToolCallbackEvent) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,4 +177,21 @@ export interface StreamingCardDeps {
   replyInThread: boolean | undefined;
   toolUseDisplay: ToolUseDisplayConfig;
   resolvedFooter: Required<FeishuFooterConfig>;
+}
+
+export interface AcpToolCallbackEvent {
+  type: 'tool_call';
+  sessionKey?: string;
+  text?: string;
+  tag?: string;
+  toolName?: string;
+  toolParams?: Record<string, unknown>;
+  toolStatus?: string;
+  status?: string;
+  toolCallId?: string;
+  toolResult?: unknown;
+  toolError?: string;
+  toolDurationMs?: number;
+  toolRunId?: string;
+  title?: string;
 }
