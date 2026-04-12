@@ -14,6 +14,7 @@ import { ticketElapsed } from '../../core/lark-ticket';
 import { createFeishuReplyDispatcher } from '../../card/reply-dispatcher';
 import { startToolUseTraceRun } from '../../card/tool-use-trace-store';
 import { sendMessageFeishu } from '../outbound/send';
+import { dispatchAcpSystemCommand, parseAcpSystemCommand } from '../../channel/acp-system-command';
 import type { PermissionError } from './permission';
 import type { DispatchContext } from './dispatch-context';
 import { buildInboundPayload } from './dispatch-builders';
@@ -108,11 +109,27 @@ export async function dispatchSystemCommand(
 ): Promise<void> {
   let delivered = false;
   const suppressToolDetails = isLifecycleSessionCommand(dc.ctx.content);
+  const acpVerb = parseAcpSystemCommand(dc.ctx.content);
 
   dc.log(
     `feishu[${dc.account.accountId}]: detected system command, using plain-text dispatch`,
   );
   log.info('system command detected, plain-text dispatch');
+
+  try {
+    const handledByAcp = await dispatchAcpSystemCommand({
+      dc,
+      verb: acpVerb,
+      replyToMessageId,
+    });
+    if (handledByAcp) {
+      dc.log(`feishu[${dc.account.accountId}]: system command handled via ACP provider`);
+      log.info(`system command handled via ACP provider (elapsed=${ticketElapsed()}ms)`);
+      return;
+    }
+  } catch (err) {
+    dc.error(`feishu[${dc.account.accountId}]: ACP system command failed: ${String(err)}`);
+  }
 
   await dc.core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx: ctxPayload,

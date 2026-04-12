@@ -5,6 +5,18 @@ const { dispatchReplyWithBufferedBlockDispatcherMock, sendMessageFeishuMock } = 
   sendMessageFeishuMock: vi.fn().mockResolvedValue({}),
 }));
 
+const {
+  compactSessionViaProviderMock,
+  dispatchAcpSystemCommandMock,
+  getSessionConfigViaProviderMock,
+  parseAcpSystemCommandMock,
+} = vi.hoisted(() => ({
+  compactSessionViaProviderMock: vi.fn(),
+  dispatchAcpSystemCommandMock: vi.fn(),
+  getSessionConfigViaProviderMock: vi.fn(),
+  parseAcpSystemCommandMock: vi.fn(),
+}));
+
 vi.mock('../src/core/lark-client', () => ({
   LarkClient: {
     runtime: {
@@ -41,6 +53,11 @@ vi.mock('../src/messaging/inbound/dispatch-builders', () => ({
   buildInboundPayload: vi.fn(),
 }));
 
+vi.mock('../src/channel/acp-system-command', () => ({
+  dispatchAcpSystemCommand: dispatchAcpSystemCommandMock,
+  parseAcpSystemCommand: parseAcpSystemCommandMock,
+}));
+
 import { dispatchSystemCommand } from '../src/messaging/inbound/dispatch-commands';
 
 function createDispatchContext(content: string) {
@@ -68,6 +85,8 @@ function createDispatchContext(content: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  parseAcpSystemCommandMock.mockReturnValue(undefined);
+  dispatchAcpSystemCommandMock.mockResolvedValue(false);
 });
 
 describe('dispatchSystemCommand', () => {
@@ -137,5 +156,27 @@ describe('dispatchSystemCommand', () => {
         text: 'Help text',
       }),
     );
+  });
+
+  it('handles /status via ACP provider when ACP session exists', async () => {
+    parseAcpSystemCommandMock.mockReturnValue('status');
+    dispatchAcpSystemCommandMock.mockResolvedValue(true);
+
+    await dispatchSystemCommand(createDispatchContext('/status'), {} as never, 'om_reply_1');
+
+    expect(dispatchReplyWithBufferedBlockDispatcherMock).not.toHaveBeenCalled();
+    expect(dispatchAcpSystemCommandMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageFeishuMock).not.toHaveBeenCalled();
+  });
+
+  it('handles /config via ACP provider when ACP session exists', async () => {
+    parseAcpSystemCommandMock.mockReturnValue('config');
+    dispatchAcpSystemCommandMock.mockResolvedValue(true);
+
+    await dispatchSystemCommand(createDispatchContext('/config'), {} as never, 'om_reply_1');
+
+    expect(dispatchReplyWithBufferedBlockDispatcherMock).not.toHaveBeenCalled();
+    expect(dispatchAcpSystemCommandMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageFeishuMock).not.toHaveBeenCalled();
   });
 });

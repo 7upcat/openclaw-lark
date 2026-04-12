@@ -19,11 +19,17 @@ import { withTicket } from '../core/lark-ticket';
 import { larkLogger } from '../core/lark-logger';
 import { handleCardAction } from '../tools/auto-auth';
 import { handleAskUserAction } from '../tools/ask-user-question';
-import { buildQueueKey, enqueueFeishuChatTask, getActiveDispatcher, hasActiveTask } from './chat-queue';
-import { extractRawTextFromEvent, isLikelyAbortText } from './abort-detect';
-import { enqueueSessionPendingMessage } from './session-pending-queue';
-import { trySteerSessionViaProvider } from './session-continuation-provider';
+import { LarkClient } from '../core/lark-client';
+import { handleDangerousConfirmationCardAction } from '../messaging/inbound/dangerous-confirmation-cards';
 import { addReactionFeishu } from '../messaging/outbound/reactions';
+import { buildQueueKey, enqueueFeishuChatTask, getActiveDispatcher, hasActiveTask } from './chat-queue';
+import {
+  extractRawTextFromEvent,
+  isLikelyAbortText,
+} from './abort-detect';
+import { enqueueSessionPendingMessage } from './session-pending-queue';
+import { interruptSessionViaProvider, trySteerSessionViaProvider } from './acp-session-provider';
+import { handleAcpConfigCardAction, showAcpConfigCard } from './config-card';
 import type { MonitorContext } from './types';
 import { dispatchFeishuPluginInteractiveHandler } from './interactive-dispatch';
 
@@ -91,28 +97,87 @@ export async function handleMessageEvent(ctx: MonitorContext, data: unknown): Pr
       return;
     }
 
-    // ---- Abort fast-path ----
-    // If the message looks like an abort trigger and there is an active
-    // reply dispatcher for this chat, fire abortCard() immediately
-    // (before the message enters the serial queue) so the streaming
-    // card is terminated without waiting for the current task.
-    const abortText = extractRawTextFromEvent(event);
-    if (abortText && isLikelyAbortText(abortText)) {
-      const queueKey = buildQueueKey(accountId, chatId, threadId);
+    const queueKey = buildQueueKey(accountId, chatId, threadId);
+    const promptText = extractRawTextFromEvent(event);
+    const active = getActiveDispatcher(queueKey);
+    const route = LarkClient.runtime.channel.routing.resolveAgentRoute({
+      cfg: ctx.cfg,
+      channel: 'feishu',
+      accountId,
+      peer: {
+        kind: event.message?.chat_type === 'group' ? 'group' : 'direct',
+        id: event.message?.chat_type === 'group'
+          ? chatId
+          : (event.sender?.sender_id?.open_id || chatId),
+      },
+    });
+    const routedSessionKey = String(route.sessionKey || '').trim() || active?.sessionKey;
+
+    if (promptText && isLikelyAbortText(promptText)) {
+      if (routedSessionKey) {
+        const interrupted = await interruptSessionViaProvider({
+          sessionKey: routedSessionKey,
+          reason: 'feishu-interrupt',
+          timeoutMs: steerTimeoutMs,
+        });
+        if (interrupted) {
+          log(`feishu[${accountId}]: ACP abort trigger interrupted session for chat ${chatId}`);
+          active?.abortController?.abort();
+          active?.abortCard().catch((err) => {
+            error(`feishu[${accountId}]: interrupt fast-path abortCard failed: ${String(err)}`);
+          });
+          try {
+            await addReactionFeishu({
+              cfg: ctx.cfg,
+              messageId: msgId,
+              emojiType: 'CheckMark',
+              accountId,
+            });
+          } catch (err) {
+            error(`feishu[${accountId}]: failed to add interrupt reaction on ${msgId}: ${String(err)}`);
+          }
+          return;
+        }
+      }
+
       if (hasActiveTask(queueKey)) {
-        const active = getActiveDispatcher(queueKey);
-        if (active) {
-          log(`feishu[${accountId}]: abort fast-path triggered for chat ${chatId} (text="${abortText}")`);
-          active.abortController?.abort();
-          active.abortCard().catch((err) => {
+        const activeDispatcher = getActiveDispatcher(queueKey);
+        if (activeDispatcher) {
+          log(`feishu[${accountId}]: abort fast-path triggered for chat ${chatId} (text="${promptText}")`);
+          activeDispatcher.abortController?.abort();
+          activeDispatcher.abortCard().catch((err) => {
             error(`feishu[${accountId}]: abort fast-path abortCard failed: ${String(err)}`);
           });
         }
       }
+      return;
     }
 
-    const queueKey = buildQueueKey(accountId, chatId, threadId);
-    const promptText = extractRawTextFromEvent(event);
+    const configCommand = Boolean(promptText && /^\/config$/iu.test(promptText.trim()));
+    const standaloneBotMention = Boolean(
+      ctx.lark.botOpenId
+        && event.message?.message_type === 'text'
+        && (event.message?.mentions?.some((mention) => mention.id?.open_id === ctx.lark.botOpenId) ?? false)
+        && !extractRawTextFromEvent(event),
+    );
+
+    if (configCommand || standaloneBotMention) {
+      const sessionKey = routedSessionKey;
+      if (sessionKey) {
+        const shown = await showAcpConfigCard({
+          cfg: ctx.cfg,
+          accountId,
+          chatId,
+          replyToMessageId: msgId,
+          sessionKey,
+        });
+        if (shown) {
+          log(`feishu[${accountId}]: ACP config card shown for chat ${chatId}`);
+          return;
+        }
+      }
+    }
+
     const dispatchNow = (): void => {
       void enqueueFeishuChatTask({
         accountId,
@@ -343,9 +408,16 @@ export async function handleCommentEvent(ctx: MonitorContext, data: unknown): Pr
 
 export async function handleCardActionEvent(ctx: MonitorContext, data: unknown): Promise<unknown> {
   try {
+    const acpConfigResult = await handleAcpConfigCardAction(data);
+    if (acpConfigResult !== undefined) return acpConfigResult;
+
     // AskUserQuestion：表单卡片交互（宿主内建能力优先）
     const askResult = handleAskUserAction(data, ctx.cfg, ctx.accountId);
     if (askResult !== undefined) return askResult;
+
+    // 全局危险操作确认卡片。
+    const dangerousResult = await handleDangerousConfirmationCardAction(data, ctx.cfg, ctx.accountId);
+    if (dangerousResult !== undefined) return dangerousResult;
 
     // auto-auth：授权/权限引导相关卡片交互（宿主内建能力优先）
     const authResult = await handleCardAction(data, ctx.cfg, ctx.accountId);
