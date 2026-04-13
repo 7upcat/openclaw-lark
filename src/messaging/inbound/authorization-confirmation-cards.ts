@@ -148,8 +148,7 @@ function stripShellWrapper(command: string): string {
 
 function summarizeApprovalCommand(command: string): string {
   const stripped = stripShellWrapper(command);
-  const firstLine = stripped.split(/\r?\n/, 1)[0]?.trim() ?? '';
-  const normalized = firstLine.replace(/\s+/g, ' ');
+  const normalized = stripped.replace(/\s+/g, ' ').trim();
   return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
 }
 
@@ -159,6 +158,29 @@ function summarizeApprovalCommandParts(parts: string[]): string {
 
 function buildCodeBlock(value: string): string {
   return `\`\`\`bash\n${value.replace(/```/g, '`\\`\\`')}\n\`\`\``;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function normalizePathList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+function formatAcpPermissionRule(permissions: Record<string, unknown>): string | undefined {
+  const parts: string[] = [];
+  const network = asRecord(permissions.network);
+  if (network?.enabled === true) parts.push('network');
+  const fileSystem = asRecord(permissions.file_system) ?? asRecord(permissions.fileSystem);
+  const readPaths = normalizePathList(fileSystem?.read);
+  const writePaths = normalizePathList(fileSystem?.write);
+  if (readPaths.length) parts.push(`read ${readPaths.map((path) => `\`${path}\``).join(', ')}`);
+  if (writePaths.length) parts.push(`write ${writePaths.map((path) => `\`${path}\``).join(', ')}`);
+  return parts.length ? parts.join('; ') : undefined;
 }
 
 function buildAcpApprovalCardBodyElements(event: AcpApprovalRequestedCallbackEvent): Array<Record<string, unknown>> {
@@ -174,12 +196,17 @@ function buildAcpApprovalCardBodyElements(event: AcpApprovalRequestedCallbackEve
       lines.push(`参数：\n\`\`\`json\n${JSON.stringify(event.mcpToolParams, null, 2)}\n\`\`\``);
     }
   }
-  if (event.proposedExecpolicyAmendment?.length) {
-    lines.push(`命令前缀：\n${buildCodeBlock(summarizeApprovalCommandParts(event.proposedExecpolicyAmendment))}`);
-  } else if (event.command) {
+  if (event.permissions) {
+    const permissionRule = formatAcpPermissionRule(event.permissions);
+    if (permissionRule) lines.push(`权限规则：${permissionRule}`);
+  }
+  if (event.command) {
     lines.push(`命令摘要：\n${buildCodeBlock(summarizeApprovalCommand(event.command))}`);
   }
-  if (event.cwd) lines.push(`目录：\`${event.cwd}\``);
+  if (event.proposedExecpolicyAmendment?.length) {
+    lines.push(`可记住前缀：\n${buildCodeBlock(summarizeApprovalCommandParts(event.proposedExecpolicyAmendment))}`);
+  }
+  if (event.cwd) lines.push(`执行位置：\`${event.cwd}\``);
   if (event.grantRoot) lines.push(`授权范围：\`${event.grantRoot}\``);
   const elements: Array<Record<string, unknown>> = [
     { tag: 'markdown', content: lines.join('\n\n') },
@@ -189,7 +216,7 @@ function buildAcpApprovalCardBodyElements(event: AcpApprovalRequestedCallbackEve
       tag: 'collapsible_panel',
       expanded: false,
       header: {
-        title: { tag: 'plain_text', content: '原始命令' },
+        title: { tag: 'plain_text', content: '完整命令' },
         vertical_align: 'center',
         icon: {
           tag: 'standard_icon',

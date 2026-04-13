@@ -26,6 +26,7 @@ vi.mock('../src/channel/acp-session-provider', () => ({
 
 import {
   handleAuthorizationConfirmationCardAction,
+  sendAcpApprovalConfirmationCard,
   sendAuthorizationConfirmationCard,
 } from '../src/messaging/inbound/authorization-confirmation-cards';
 
@@ -42,16 +43,26 @@ function createCtx() {
 function getOperationIdFromCard() {
   const card = mockSendCardFeishu.mock.calls[0]?.[0]?.card;
   expect(card).toBeDefined();
-  return String(card.body.elements[1].columns[0].elements[0].value.operation_id);
+  const actionRow = card.body.elements.find((element: any) => element.tag === 'column_set');
+  expect(actionRow).toBeDefined();
+  return String(actionRow.columns[0].elements[0].value.operation_id);
 }
 
 function getButtonFromCard(choice: string) {
   const card = mockSendCardFeishu.mock.calls[0]?.[0]?.card;
   expect(card).toBeDefined();
-  const columns = card.body.elements[1].columns;
+  const actionRow = card.body.elements.find((element: any) => element.tag === 'column_set');
+  expect(actionRow).toBeDefined();
+  const columns = actionRow.columns;
   return columns
     .flatMap((column: any) => column.elements)
     .find((element: any) => element.value?.choice === choice);
+}
+
+function getSentCard() {
+  const card = mockSendCardFeishu.mock.calls[0]?.[0]?.card;
+  expect(card).toBeDefined();
+  return card;
 }
 
 describe('authorization confirmation cards', () => {
@@ -322,5 +333,53 @@ describe('authorization confirmation cards', () => {
       decision: 'approve-prefix',
     });
     expect(mockTrySteerSessionViaProvider).not.toHaveBeenCalled();
+  });
+
+  it('renders ACP command approval with a short summary and collapsed full command', async () => {
+    await sendAcpApprovalConfirmationCard({
+      cfg: {} as any,
+      accountId: 'acct',
+      persona: 'luffy',
+      ctx: createCtx(),
+      event: {
+        type: 'approval_requested',
+        sessionKey: 'session-1',
+        approvalId: 'approval-1',
+        kind: 'command',
+        method: 'command_execution/requestApproval',
+        reason: '要在用户根目录创建一个测试文件 /Users/catframework/luffy-plan-card-test.txt 吗？',
+        command: "printf 'luffy plan mode file write test\n' > /Users/catframework/luffy-plan-card-test.txt",
+        cwd: '/Users/catframework/.openclaw/workspace/luffy',
+        permissions: {
+          file_system: {
+            write: ['/Users/catframework/luffy-plan-card-test.txt'],
+          },
+        },
+        availableDecisions: [
+          'accept',
+          { acceptWithExecpolicyAmendment: { execpolicy_amendment: ['printf'] } },
+          'cancel',
+        ],
+        proposedExecpolicyAmendment: ["printf 'luffy plan mode file write test"],
+      },
+    });
+
+    const card = getSentCard();
+    const markdown = card.body.elements.find((element: any) => element.tag === 'markdown')?.content;
+    expect(markdown).toContain('权限规则：write `/Users/catframework/luffy-plan-card-test.txt`');
+    expect(markdown).toContain('命令摘要：');
+    expect(markdown).toContain('可记住前缀：');
+    expect(markdown).toContain('执行位置：`/Users/catframework/.openclaw/workspace/luffy`');
+    expect(markdown).not.toContain('命令前缀：');
+    expect(markdown).not.toContain('目录：');
+    expect(markdown.indexOf('命令摘要：')).toBeLessThan(markdown.indexOf('可记住前缀：'));
+
+    const fullCommandPanel = card.body.elements.find((element: any) => element.tag === 'collapsible_panel');
+    expect(fullCommandPanel).toBeDefined();
+    expect(fullCommandPanel.expanded).toBe(false);
+    expect(fullCommandPanel.header.title.content).toBe('完整命令');
+    expect(fullCommandPanel.elements[0].content).toContain('```bash');
+    expect(fullCommandPanel.elements[0].content).toContain("printf 'luffy plan mode file write test\n'");
+    expect(fullCommandPanel.elements[0].content).toContain('> /Users/catframework/luffy-plan-card-test.txt');
   });
 });
