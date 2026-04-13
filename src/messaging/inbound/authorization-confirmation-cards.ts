@@ -11,7 +11,7 @@ const CARD_TTL_MS = 30 * 60 * 1000;
 const CARD_ACTION = 'authorization_confirmation_card';
 const LEGACY_CARD_ACTION = 'dangerous_confirmation_card';
 
-type AuthorizationCardActionEvent = {
+interface AuthorizationCardActionEvent {
   operator?: {
     open_id?: string;
     operator_id?: {
@@ -25,16 +25,16 @@ type AuthorizationCardActionEvent = {
       choice?: string;
     };
   };
-};
+}
 
-type AuthorizationConfirmationContext = {
+interface AuthorizationConfirmationContext {
   chatType?: string;
   senderId?: string;
   chatId: string;
   messageId: string;
   sessionKey?: string;
   threadSessionKey?: string;
-};
+}
 
 type AcpApprovalKind = 'command' | 'file_change' | 'permissions' | 'mcp_tool_call';
 

@@ -40,8 +40,8 @@ import { runFeishuDoctorI18n } from '../../commands/doctor';
 import { runFeishuAuthI18n } from '../../commands/auth';
 import { getFeishuHelpI18n, runFeishuStartI18n } from '../../commands/index';
 import { buildI18nMarkdownCard, sendCardFeishu, sendMessageFeishu } from '../outbound/send';
-import { dispatchPermissionNotification, dispatchSystemCommand } from './dispatch-commands';
 import { parseAcpSystemCommand } from '../../channel/acp-system-command';
+import { dispatchPermissionNotification, dispatchSystemCommand } from './dispatch-commands';
 import { registerInboundRuntimeCallbacks } from './runtime-callbacks';
 import {
   buildBodyForAgent,

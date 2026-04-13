@@ -13,25 +13,25 @@ import {
   type AcpReasoningEffort,
   type AcpRuntimeMode,
   bindAcpSessionViaSessionStore,
-  compactSessionViaProvider,
   clearSessionViaProvider,
+  compactSessionViaProvider,
   detectAcpBindingViaSessionStore,
   getSessionConfigViaProvider,
   inspectSessionViaProvider,
-  resolvePermissionMode,
   resetSessionViaProvider,
+  resolvePermissionMode,
   setSessionCollaborationModeViaProvider,
+  setSessionModelViaProvider,
   setSessionPermissionModeViaProvider,
   setSessionReasoningEffortViaProvider,
   setSessionRuntimeModeViaProvider,
-  setSessionModelViaProvider,
   unbindAcpSessionViaSessionStore,
 } from './acp-session-provider';
 
 const log = larkLogger('channel/config-card');
 const CARD_TTL_MS = 30 * 60 * 1000;
 
-type PendingConfigCard = {
+interface PendingConfigCard {
   operationId: string;
   cfg: ClawdbotConfig;
   accountId: string;
@@ -46,7 +46,7 @@ type PendingConfigCard = {
   reasoningEffort: AcpReasoningEffort;
   permissionMode: AcpPermissionMode;
   createdAt: number;
-};
+}
 
 const pendingConfigCards = new Map<string, PendingConfigCard>();
 
@@ -101,23 +101,6 @@ function buildLabeledSelect(label: string, select: Record<string, unknown>) {
         elements: [select],
       },
     ],
-  };
-}
-
-function buildTwoColumnLabeledSelects(items: Array<{ label: string; select: Record<string, unknown> }>) {
-  return {
-    tag: 'column_set',
-    flex_mode: 'stretch',
-    horizontal_align: 'left',
-    columns: items.map((item) => ({
-      tag: 'column',
-      width: 'weighted',
-      weight: 1,
-      elements: [
-        { tag: 'markdown', content: `**${item.label}**` },
-        item.select,
-      ],
-    })),
   };
 }
 
@@ -475,13 +458,14 @@ export async function handleAcpConfigCardAction(
       messageId,
       card: progressCard,
     });
-    let ok = false;
-    try {
-      ok = await compactSessionViaProvider(card.sessionKey);
-    } catch (error) {
-      log.warn(`compact action failed sessionKey=${card.sessionKey} error=${String(error)}`);
-      ok = false;
-    }
+    const ok = await (async () => {
+      try {
+        return await compactSessionViaProvider(card.sessionKey);
+      } catch (error) {
+        log.warn(`compact action failed sessionKey=${card.sessionKey} error=${String(error)}`);
+        return false;
+      }
+    })();
     if (!ok) {
       const failedCard = buildResultCard('ACP 配置', '压缩触发失败，当前配置未变。', 'red');
       await updateCardFeishu({

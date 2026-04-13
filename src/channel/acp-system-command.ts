@@ -7,11 +7,11 @@ import type { DispatchContext } from '../messaging/inbound/dispatch-context';
 import { sendMessageFeishu } from '../messaging/outbound/send';
 import { showAcpConfigCard } from './config-card';
 import {
+  clearSessionViaProvider,
   compactSessionViaProvider,
   getSessionConfigViaProvider,
   inspectSessionViaProvider,
   newSessionViaProvider,
-  clearSessionViaProvider,
   resolvePermissionMode,
   setSessionCollaborationModeViaProvider,
 } from './acp-session-provider';

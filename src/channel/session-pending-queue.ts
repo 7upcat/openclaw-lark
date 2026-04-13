@@ -7,12 +7,12 @@ import { hasActiveTask } from './chat-queue';
 
 type QueueStatus = 'queued' | 'immediate';
 
-type PendingSessionEntry = {
+interface PendingSessionEntry {
   dispatchNow: () => void;
   trySteer?: () => Promise<boolean>;
   onSteerSuccess?: () => Promise<void>;
   steerRetryDelayMs: number;
-};
+}
 
 const pendingBySession = new Map<string, PendingSessionEntry[]>();
 const activeDrains = new Set<string>();

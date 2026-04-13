@@ -10,7 +10,7 @@ const CARD_ACTION = 'acp_user_input_card';
 const SUBMIT_BUTTON_PREFIX = 'acp_user_input_submit_';
 const CARD_TTL_MS = 30 * 60 * 1000;
 
-type AcpUserInputCardActionEvent = {
+interface AcpUserInputCardActionEvent {
   operator?: { open_id?: string; operator_id?: { open_id?: string } };
   open_chat_id?: string;
   context?: { open_chat_id?: string };
@@ -24,16 +24,16 @@ type AcpUserInputCardActionEvent = {
       choice?: string;
     };
   };
-};
+}
 
-type PendingAcpUserInputCard = {
+interface PendingAcpUserInputCard {
   operationId: string;
   requestId: string;
   sessionKey: string;
   messageId?: string;
   senderOpenId?: string;
   questions: AcpUserInputQuestion[];
-};
+}
 
 const pendingCards = new Map<string, PendingAcpUserInputCard>();
 

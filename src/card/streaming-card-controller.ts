@@ -49,9 +49,9 @@ import { optimizeMarkdownStyle } from './markdown-style';
 import { type ToolUseDisplayResult, buildToolUseTitleSuffix, normalizeToolUseDisplay } from './tool-use-display';
 import { clearToolUseTraceRun, getToolUseTraceSteps, recordToolUseEnd, recordToolUseStart } from './tool-use-trace-store';
 import type {
+  AcpToolCallbackEvent,
   CardKitState,
   CardPhase,
-  AcpToolCallbackEvent,
   FooterSessionMetrics,
   ReasoningState,
   StreamingCardDeps,

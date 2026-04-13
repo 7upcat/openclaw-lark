@@ -17,7 +17,7 @@ type AcpSessionEvent =
   | AcpApprovalRequestedCallbackEvent
   | AcpTurnCompletedCallbackEvent
   | { type: string; sessionKey?: string };
-export type AcpApprovalRequestedCallbackEvent = {
+export interface AcpApprovalRequestedCallbackEvent {
   type: 'approval_requested';
   sessionKey: string;
   approvalId: string;
@@ -38,16 +38,16 @@ export type AcpApprovalRequestedCallbackEvent = {
   mcpToolTitle?: string;
   mcpToolDescription?: string;
   mcpToolParams?: Record<string, unknown>;
-};
-export type AcpUserInputQuestion = {
+}
+export interface AcpUserInputQuestion {
   id: string;
   header: string;
   question: string;
   isOther?: boolean;
   isSecret?: boolean;
   options?: Array<{ label: string; description?: string }> | null;
-};
-export type AcpUserInputRequestedCallbackEvent = {
+}
+export interface AcpUserInputRequestedCallbackEvent {
   type: 'user_input_requested';
   sessionKey: string;
   requestId: string;
@@ -56,15 +56,15 @@ export type AcpUserInputRequestedCallbackEvent = {
   turnId?: string;
   itemId?: string;
   questions: AcpUserInputQuestion[];
-};
-export type AcpTurnCompletedCallbackEvent = {
+}
+export interface AcpTurnCompletedCallbackEvent {
   type: 'turn_completed';
   sessionKey: string;
   threadId?: string;
   turnId?: string;
   status?: string;
   durationMs?: number;
-};
+}
 export type AcpSessionCallbackEvent =
   | AcpToolCallbackEvent
   | AcpApprovalRequestedCallbackEvent

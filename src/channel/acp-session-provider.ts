@@ -12,7 +12,7 @@ const CODEX_ACP_APPROVAL_PROVIDER_SYMBOL = Symbol.for('openclaw.codex-acp.approv
 const log = larkLogger('channel/acp-session-provider');
 const LARK_ACP_BINDING_BACKUP_KEY = 'larkAcpBindingBackup';
 
-export type AcpSessionInspection = {
+export interface AcpSessionInspection {
   sessionKey: string;
   exists: boolean;
   hasActiveTurn: boolean;
@@ -20,9 +20,9 @@ export type AcpSessionInspection = {
   threadId?: string;
   turnId?: string;
   lastStatus?: string;
-};
+}
 
-export type AcpSessionConfigState = {
+export interface AcpSessionConfigState {
   sessionKey: string;
   exists: boolean;
   hasActiveTurn: boolean;
@@ -34,7 +34,7 @@ export type AcpSessionConfigState = {
   currentApprovalPolicy?: string;
   currentSandboxMode?: string;
   availableModels: string[];
-};
+}
 
 export type AcpPermissionMode = 'default' | 'full-access' | 'custom';
 export type AcpRuntimeMode = 'persona' | 'pure' | 'native';
@@ -42,7 +42,7 @@ export type AcpCollaborationMode = 'default' | 'plan';
 export type AcpReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 type CodexAcpRuntimeMode = Exclude<AcpRuntimeMode, 'native'>;
 
-type AcpSessionProvider = {
+interface AcpSessionProvider {
   inspectSession?(sessionKey: string): AcpSessionInspection;
   trySteerSession?(params: {
     sessionKey: string;
@@ -57,11 +57,11 @@ type AcpSessionProvider = {
   clearSession?(params: { sessionKey: string }): Promise<{ accepted: boolean }>;
   setSessionModel?(params: { sessionKey: string; model: string }): Promise<{ accepted: boolean; model: string }>;
   setConfigOption?(params: { sessionKey: string; key: string; value: string }): Promise<{ accepted: boolean }>;
-};
+}
 
 export type AcpApprovalDecision = 'approve-once' | 'approve-session' | 'approve-prefix' | 'deny';
 
-type AcpApprovalProvider = {
+interface AcpApprovalProvider {
   resolveApproval?(params: {
     sessionKey?: string;
     approvalId: string;
@@ -72,7 +72,7 @@ type AcpApprovalProvider = {
     requestId: string;
     answers: Record<string, string[]>;
   }): { accepted: boolean; reason?: string };
-};
+}
 
 function readAcpSessionProvider(): AcpSessionProvider | undefined {
   const host = globalThis as typeof globalThis & {

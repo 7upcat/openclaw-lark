@@ -156,7 +156,7 @@ function resolveFeishuSendContext(params: {
 // Adapter
 // ---------------------------------------------------------------------------
 
-type FeishuDeliveredVisibilityParams = { kind: 'tool' | 'block' | 'final'; text?: string };
+interface FeishuDeliveredVisibilityParams { kind: 'tool' | 'block' | 'final'; text?: string }
 
 export const feishuOutbound: ChannelOutboundAdapter & {
   shouldTreatDeliveredTextAsVisible: (params: FeishuDeliveredVisibilityParams) => boolean;
