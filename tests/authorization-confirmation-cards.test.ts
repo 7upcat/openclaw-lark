@@ -368,11 +368,10 @@ describe('authorization confirmation cards', () => {
     const markdown = card.body.elements.find((element: any) => element.tag === 'markdown')?.content;
     expect(markdown).toContain('权限规则：write `/Users/catframework/luffy-plan-card-test.txt`');
     expect(markdown).toContain('命令摘要：');
-    expect(markdown).toContain('可记住前缀：');
-    expect(markdown).toContain('执行位置：`/Users/catframework/.openclaw/workspace/luffy`');
+    expect(markdown).not.toContain('可记住前缀：');
+    expect(markdown).not.toContain('执行位置：');
     expect(markdown).not.toContain('命令前缀：');
     expect(markdown).not.toContain('目录：');
-    expect(markdown.indexOf('命令摘要：')).toBeLessThan(markdown.indexOf('可记住前缀：'));
 
     const fullCommandPanel = card.body.elements.find((element: any) => element.tag === 'collapsible_panel');
     expect(fullCommandPanel).toBeDefined();

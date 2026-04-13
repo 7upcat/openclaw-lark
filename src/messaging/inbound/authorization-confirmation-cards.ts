@@ -152,10 +152,6 @@ function summarizeApprovalCommand(command: string): string {
   return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
 }
 
-function summarizeApprovalCommandParts(parts: string[]): string {
-  return summarizeApprovalCommand(parts.join(' '));
-}
-
 function buildCodeBlock(value: string): string {
   return `\`\`\`bash\n${value.replace(/```/g, '`\\`\\`')}\n\`\`\``;
 }
@@ -203,10 +199,6 @@ function buildAcpApprovalCardBodyElements(event: AcpApprovalRequestedCallbackEve
   if (event.command) {
     lines.push(`命令摘要：\n${buildCodeBlock(summarizeApprovalCommand(event.command))}`);
   }
-  if (event.proposedExecpolicyAmendment?.length) {
-    lines.push(`可记住前缀：\n${buildCodeBlock(summarizeApprovalCommandParts(event.proposedExecpolicyAmendment))}`);
-  }
-  if (event.cwd) lines.push(`执行位置：\`${event.cwd}\``);
   if (event.grantRoot) lines.push(`授权范围：\`${event.grantRoot}\``);
   const elements: Array<Record<string, unknown>> = [
     { tag: 'markdown', content: lines.join('\n\n') },
