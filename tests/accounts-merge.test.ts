@@ -213,3 +213,91 @@ describe('mergeAccountConfig – deep merge for nested objects', () => {
     expect(account.config.historyLimit).toBe(10); // inherited
   });
 });
+
+describe('getLarkAccount – local plugin behavior overrides', () => {
+  it('merges plugin-local behavior config without replacing channel account credentials', () => {
+    const cfg = {
+      channels: {
+        feishu: {
+          appId: 'base',
+          appSecret: 'secret',
+          accounts: {
+            luffy: { appId: 'luffy-app', appSecret: 'luffy-secret' },
+          },
+        },
+      },
+      plugins: {
+        entries: {
+          'openclaw-lark': {
+            config: {
+              feishu: {
+                streaming: true,
+                replyMode: 'streaming',
+                steerTimeoutMs: 1000,
+                steerRetryDelayMs: 500,
+                footer: {
+                  status: true,
+                  elapsed: true,
+                  tokens: false,
+                  cache: false,
+                  context: true,
+                  model: false,
+                },
+                accounts: {
+                  luffy: { replyMode: 'streaming', streaming: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    } as unknown as ClawdbotConfig;
+
+    const account = getLarkAccount(cfg, 'luffy');
+
+    expect(account.config.appId).toBe('luffy-app');
+    expect(account.config.appSecret).toBe('luffy-secret');
+    expect(account.config.streaming).toBe(true);
+    expect(account.config.replyMode).toBe('streaming');
+    expect(account.config.steerTimeoutMs).toBe(1000);
+    expect(account.config.steerRetryDelayMs).toBe(500);
+    expect(account.config.footer).toEqual({
+      status: true,
+      elapsed: true,
+      tokens: false,
+      cache: false,
+      context: true,
+      model: false,
+    });
+  });
+
+  it('ignores credentials accidentally placed in plugin-local behavior config', () => {
+    const cfg = {
+      channels: {
+        feishu: {
+          appId: 'base',
+          appSecret: 'secret',
+        },
+      },
+      plugins: {
+        entries: {
+          'openclaw-lark': {
+            config: {
+              feishu: {
+                appId: 'ignored-app',
+                appSecret: 'ignored-secret',
+                streaming: true,
+              },
+            },
+          },
+        },
+      },
+    } as unknown as ClawdbotConfig;
+
+    const account = getLarkAccount(cfg);
+
+    expect(account.config.appId).toBe('base');
+    expect(account.config.appSecret).toBe('secret');
+    expect(account.config.streaming).toBe(true);
+  });
+});

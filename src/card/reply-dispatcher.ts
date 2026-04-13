@@ -92,6 +92,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   const controller = useStreamingCards
     ? new StreamingCardController({
         cfg,
+        agentId,
         sessionKey,
         accountId,
         chatId,
@@ -188,6 +189,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
 
     onReplyStart: async () => {
       if (shouldSkip('onReplyStart')) return;
+      if (controller) {
+        await controller.ensureCardCreated();
+        if (controller.isTerminated) return;
+      }
       await typingCallbacks.onReplyStart?.();
     },
 
@@ -228,7 +233,19 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       // ---- Streaming card mode ----
       if (controller) {
         if (meta?.kind === 'tool' && shouldRouteToolPayloadToCard(payload, toolUseDisplay.showToolUse)) {
-          await controller.onToolPayload(payload);
+          const toolMeta = meta as Record<string, unknown>;
+          log.debug('deliver: tool payload routed to card', {
+            sessionKey,
+            chatId,
+            toolCallId: typeof toolMeta.toolCallId === 'string' ? toolMeta.toolCallId : undefined,
+            toolStatus: typeof toolMeta.toolStatus === 'string' ? toolMeta.toolStatus : undefined,
+            allowEdit: toolMeta.allowEdit === true,
+            textPreview: payload.text?.slice(0, 240),
+          });
+          await controller.onToolPayload(payload, {
+            toolCallId: typeof toolMeta.toolCallId === 'string' ? toolMeta.toolCallId : undefined,
+            toolStatus: typeof toolMeta.toolStatus === 'string' ? toolMeta.toolStatus : undefined,
+          });
           return;
         }
 
@@ -407,8 +424,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       ...replyOptions,
       ...(controller
         ? {
-            shouldEmitToolResult: () => false,
-            shouldEmitToolOutput: () => false,
+            shouldEmitToolResult: () => toolUseDisplay.showToolUse,
+            shouldEmitToolOutput: () => toolUseDisplay.showToolUse,
           }
         : {}),
       onModelSelected: (ctx: { provider: string; model: string; thinkLevel: string | undefined }) => {
@@ -429,6 +446,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       controller?.markFullyComplete();
     },
     abortCard,
+    handleAcpToolEvent: async (event) => {
+      if (!controller) return;
+      await controller.onAcpToolEvent(event);
+    },
   };
 }
 

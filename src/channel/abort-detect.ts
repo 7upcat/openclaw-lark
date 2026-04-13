@@ -21,6 +21,15 @@ import type { FeishuMessageEvent } from '../messaging/types';
 // ---------------------------------------------------------------------------
 
 const ABORT_TRIGGERS = new Set([
+  'x',
+  '[x]',
+  '[叉号]',
+  '【x】',
+  '【叉号】',
+  '❌',
+  '✖',
+  '✖️',
+  '×',
   'stop',
   'esc',
   'abort',

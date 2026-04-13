@@ -20,13 +20,65 @@ import type { ClawdbotConfig } from 'openclaw/plugin-sdk';
 
 import type { ConfiguredLarkAccount, FeishuConfig, LarkAccount, LarkBrand, LarkCredentials } from './types';
 
+const PLUGIN_ID = 'openclaw-lark';
+const LOCAL_CONFIG_KEY = 'feishu';
+const LOCAL_OVERRIDE_FIELDS = new Set(['replyMode', 'streaming', 'footer', 'steerTimeoutMs', 'steerRetryDelayMs']);
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Extract the `channels.feishu` section from the top-level config. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function pickLocalOverrideFields(source: unknown): Partial<FeishuConfig> {
+  if (!isPlainRecord(source)) return {};
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (LOCAL_OVERRIDE_FIELDS.has(key) && value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result as Partial<FeishuConfig>;
+}
+
+function resolveLocalPluginConfig(cfg: ClawdbotConfig): Partial<FeishuConfig> | undefined {
+  const pluginConfig = (cfg as { plugins?: { entries?: Record<string, { config?: unknown }> } }).plugins?.entries?.[
+    PLUGIN_ID
+  ]?.config;
+  if (!isPlainRecord(pluginConfig)) return undefined;
+
+  const localFeishu = pluginConfig[LOCAL_CONFIG_KEY];
+  if (!isPlainRecord(localFeishu)) return undefined;
+
+  const overrides: Record<string, unknown> = { ...pickLocalOverrideFields(localFeishu) };
+  if (isPlainRecord(localFeishu.accounts)) {
+    const accounts: Record<string, Partial<FeishuConfig>> = {};
+    for (const [accountId, accountConfig] of Object.entries(localFeishu.accounts)) {
+      const accountOverrides = pickLocalOverrideFields(accountConfig);
+      if (Object.keys(accountOverrides).length > 0) {
+        accounts[accountId] = accountOverrides;
+      }
+    }
+    if (Object.keys(accounts).length > 0) {
+      overrides.accounts = accounts;
+    }
+  }
+
+  return Object.keys(overrides).length > 0 ? (overrides as Partial<FeishuConfig>) : undefined;
+}
+
+/** Extract `channels.feishu`, with local plugin-only behavior overrides applied. */
 function getLarkConfig(cfg: ClawdbotConfig): FeishuConfig | undefined {
-  return cfg?.channels?.feishu as FeishuConfig | undefined;
+  const channelConfig = cfg?.channels?.feishu as FeishuConfig | undefined;
+  const localConfig = resolveLocalPluginConfig(cfg);
+
+  if (!channelConfig) return localConfig as FeishuConfig | undefined;
+  if (!localConfig) return channelConfig;
+
+  return mergeLarkConfig(channelConfig, localConfig);
 }
 
 /** Return the per-account override map, if present. */
@@ -66,6 +118,29 @@ function mergeAccountConfig(base: Omit<FeishuConfig, 'accounts'>, override: Part
     }
   }
   return result as FeishuConfig;
+}
+
+function mergeLarkConfig(base: FeishuConfig, override: Partial<FeishuConfig>): FeishuConfig {
+  const merged = mergeAccountConfig(baseConfig(base), override);
+  const baseAccounts = getAccountMap(base);
+  const overrideAccounts = isPlainRecord(override.accounts) ? override.accounts : undefined;
+
+  if (!baseAccounts && !overrideAccounts) {
+    return merged;
+  }
+
+  const accounts: Record<string, Partial<FeishuConfig>> = { ...(baseAccounts ?? {}) };
+  for (const [accountId, accountOverride] of Object.entries(overrideAccounts ?? {})) {
+    accounts[accountId] = mergeAccountConfig(
+      (accounts[accountId] ?? {}) as Omit<FeishuConfig, 'accounts'>,
+      accountOverride as Partial<FeishuConfig>,
+    );
+  }
+
+  return {
+    ...merged,
+    accounts: accounts as FeishuConfig['accounts'],
+  };
 }
 
 /** Coerce a domain string to `LarkBrand`, defaulting to `"feishu"`. */

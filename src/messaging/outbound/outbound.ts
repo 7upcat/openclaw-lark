@@ -156,8 +156,19 @@ function resolveFeishuSendContext(params: {
 // Adapter
 // ---------------------------------------------------------------------------
 
-export const feishuOutbound: ChannelOutboundAdapter = {
+interface FeishuDeliveredVisibilityParams { kind: 'tool' | 'block' | 'final'; text?: string }
+
+export const feishuOutbound: ChannelOutboundAdapter & {
+  shouldTreatDeliveredTextAsVisible: (params: FeishuDeliveredVisibilityParams) => boolean;
+} = {
   deliveryMode: 'direct',
+
+  shouldTreatDeliveredTextAsVisible: ({ kind, text }: FeishuDeliveredVisibilityParams) => {
+    if ((kind === 'block' || kind === 'tool') && typeof text === 'string' && text.trim().length > 0) {
+      return true;
+    }
+    return kind === 'final';
+  },
 
   chunker: (text, limit) => LarkClient.runtime.channel.text.chunkMarkdownText(text, limit),
 

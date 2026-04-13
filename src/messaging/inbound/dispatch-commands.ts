@@ -4,7 +4,7 @@
  *
  * System command and permission notification dispatch for inbound messages.
  *
- * Handles control commands (/help, /reset, etc.) via plain-text delivery
+ * Handles control commands (/help, /new, etc.) via plain-text delivery
  * and permission-error notifications via the streaming card flow.
  */
 
@@ -14,6 +14,7 @@ import { ticketElapsed } from '../../core/lark-ticket';
 import { createFeishuReplyDispatcher } from '../../card/reply-dispatcher';
 import { startToolUseTraceRun } from '../../card/tool-use-trace-store';
 import { sendMessageFeishu } from '../outbound/send';
+import { dispatchAcpSystemCommand, parseAcpSystemCommand } from '../../channel/acp-system-command';
 import type { PermissionError } from './permission';
 import type { DispatchContext } from './dispatch-context';
 import { buildInboundPayload } from './dispatch-builders';
@@ -98,7 +99,7 @@ export async function dispatchPermissionNotification(
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch a system command (/help, /reset, etc.) via plain-text delivery.
+ * Dispatch a system command (/help, /new, etc.) via plain-text delivery.
  * No streaming card, no "Processing..." state.
  */
 export async function dispatchSystemCommand(
@@ -108,11 +109,27 @@ export async function dispatchSystemCommand(
 ): Promise<void> {
   let delivered = false;
   const suppressToolDetails = isLifecycleSessionCommand(dc.ctx.content);
+  const acpVerb = parseAcpSystemCommand(dc.ctx.content);
 
   dc.log(
     `feishu[${dc.account.accountId}]: detected system command, using plain-text dispatch`,
   );
   log.info('system command detected, plain-text dispatch');
+
+  try {
+    const handledByAcp = await dispatchAcpSystemCommand({
+      dc,
+      verb: acpVerb,
+      replyToMessageId,
+    });
+    if (handledByAcp) {
+      dc.log(`feishu[${dc.account.accountId}]: system command handled via ACP provider`);
+      log.info(`system command handled via ACP provider (elapsed=${ticketElapsed()}ms)`);
+      return;
+    }
+  } catch (err) {
+    dc.error(`feishu[${dc.account.accountId}]: ACP system command failed: ${String(err)}`);
+  }
 
   await dc.core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx: ctxPayload,
@@ -156,5 +173,5 @@ function isLifecycleSessionCommand(text: string | undefined): boolean {
   const match = text.trim().match(/^\/([^\s@]+)/);
   if (!match) return false;
   const command = match[1]?.toLowerCase();
-  return command === 'new' || command === 'reset';
+  return command === 'new' || command === 'clear';
 }

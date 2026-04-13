@@ -14,6 +14,7 @@ src/tools/docs/
 .claude/
 .cursor/
 .windsurf/
+.spec-workflow/
 
 
 # Internal documentation directories
@@ -24,3 +25,4 @@ src/tools/docs/
 /**/.DS_Store
 
 .eslintcache
+.omx/

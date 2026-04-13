@@ -20,6 +20,7 @@ export interface ToolUseDisplayStep {
   detail?: string;
   iconToken: string;
   status: ToolUseStepStatus;
+  durationMs?: number;
   resultBlock?: ToolUseDisplayBlock;
   errorBlock?: ToolUseDisplayBlock;
 }
@@ -98,6 +99,7 @@ const TOOL_DESCRIPTORS: ToolDescriptor[] = [
     title: 'Search web',
     sanitizer: 'search',
     paramKeys: ['query', 'q'],
+    detailFromParams: (params) => buildWebSearchDetail(params),
     summaryPatterns: [/^(?:search\s+(?:web\s+)?(?:for|about)|query)\s+(.+)$/i],
     summaryPreference: ['quoted', 'matched', 'line'],
   },
@@ -127,7 +129,7 @@ const TOOL_DESCRIPTORS: ToolDescriptor[] = [
     summaryPatterns: [/^(?:search\s+files(?:\s+by\s+pattern)?|glob)\s+(.+)$/i],
   },
   {
-    aliases: ['exec', 'bash', 'command', 'run'],
+    aliases: ['exec', 'bash', 'command', 'run', 'commandexecution', 'command_execution'],
     iconToken: 'setting_outlined',
     title: 'Run command',
     sanitizer: 'command',
@@ -136,13 +138,22 @@ const TOOL_DESCRIPTORS: ToolDescriptor[] = [
     summaryPreference: ['code', 'quoted', 'matched', 'line'],
   },
   {
-    aliases: ['browser', 'playwright', 'navigate'],
+    aliases: ['browser', 'playwright', 'navigate', 'websearch', 'web_search'],
     iconToken: 'browser-mac_outlined',
     title: 'Browser',
     sanitizer: 'url',
     paramKeys: ['url'],
     summaryPatterns: [/^(?:open|browse|visit|navigate\s+to)\s+(.+)$/i],
     summaryPreference: ['url', 'quoted', 'matched', 'line'],
+  },
+  {
+    aliases: ['filechange', 'file_change', 'apply_patch'],
+    iconToken: 'edit_outlined',
+    title: 'Edit',
+    sanitizer: 'path',
+    paramKeys: ['path', 'file', 'target'],
+    summaryPatterns: [/^(?:edit|patch|apply[_ ]patch)\s+(.+)$/i],
+    summaryPreference: ['code', 'quoted', 'matched', 'line'],
   },
   {
     aliases: ['agent', 'task', 'spawn'],
@@ -227,6 +238,7 @@ function formatToolStep(
     detail,
     iconToken: descriptor?.iconToken ?? 'setting-inter_outlined',
     status,
+    durationMs: source.durationMs,
     resultBlock,
     errorBlock,
   };
@@ -338,6 +350,19 @@ function buildPatternDetail(params: Record<string, unknown>, options: { includeT
   return pattern ?? target ?? undefined;
 }
 
+function buildWebSearchDetail(params: Record<string, unknown>): string | undefined {
+  const action =
+    params.action && typeof params.action === 'object' && !Array.isArray(params.action)
+      ? (params.action as Record<string, unknown>)
+      : undefined;
+  return (
+    extractScalarText(action?.url) ??
+    extractScalarText(params.url) ??
+    extractScalarText(params.query) ??
+    extractScalarText(params.q)
+  );
+}
+
 function extractScalarText(value: unknown): string | undefined {
   if (typeof value === 'string') return value.trim() || undefined;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -368,8 +393,10 @@ function sanitizeToolDetail(
       );
     case 'path':
       return sanitizePathLike(cleaned, options);
-    case 'search':
-      return stripQuotes(cleaned);
+    case 'search': {
+      const searchText = stripQuotes(cleaned);
+      return /^https?:\/\//i.test(searchText) ? sanitizeUrlForDisplay(searchText) : searchText;
+    }
     case 'url':
       return stripQuotes(cleaned).replace(/^from\s+/i, '');
     case 'generic':
