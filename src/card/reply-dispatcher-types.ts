@@ -182,6 +182,7 @@ export interface StreamingCardDeps {
 export interface AcpToolCallbackEvent {
   type: 'tool_call';
   sessionKey?: string;
+  turnId?: string;
   text?: string;
   tag?: string;
   toolName?: string;

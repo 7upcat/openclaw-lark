@@ -90,7 +90,7 @@ beforeEach(() => {
 });
 
 describe('dispatchSystemCommand', () => {
-  it.each(['/new', '/reset'])(
+  it.each(['/new', '/clear'])(
     'suppresses tool detail deliveries for %s session lifecycle commands',
     async (command) => {
       dispatchReplyWithBufferedBlockDispatcherMock.mockImplementationOnce(

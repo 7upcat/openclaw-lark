@@ -206,11 +206,11 @@ export function compactNumber(value: number): string {
   const abs = Math.abs(value);
   if (abs >= 1_000_000) {
     const m = value / 1_000_000;
-    return `${m.toFixed(1)}m`;
+    return `${m.toFixed(Math.abs(m) < 100 ? 1 : 0)}m`;
   }
   if (abs >= 1_000) {
     const k = value / 1_000;
-    return `${k.toFixed(1)}k`;
+    return `${k.toFixed(Math.abs(k) < 100 ? 1 : 0)}k`;
   }
   return `${Math.round(value)}`;
 }

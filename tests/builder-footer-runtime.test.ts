@@ -55,8 +55,8 @@ describe('formatFooterRuntimeSegments', () => {
     expect(result.primaryEn).toEqual(['Completed', 'Elapsed 12.3s', 'claude-opus-4-6']);
 
     // Detail line: tokens, cache, context
-    expect(result.detailZh).toEqual(['↑ 1.2k ↓ 3.5k', '缓存 800/200 (36%)', '上下文 4.5k/128k (4%)']);
-    expect(result.detailEn).toEqual(['↑ 1.2k ↓ 3.5k', 'Cache 800/200 (36%)', 'Context 4.5k/128k (4%)']);
+    expect(result.detailZh).toEqual(['Tokens 4.5k', '缓存 800/200 (36%)', '上下文 4.5k/128k (4%)']);
+    expect(result.detailEn).toEqual(['Tokens 4.5k', 'Cache 800/200 (36%)', 'Context 4.5k/128k (4%)']);
   });
 
   it('respects missing metrics and status variants', () => {
@@ -131,7 +131,7 @@ describe('buildCardContent – footer line joining', () => {
     expect(lines[0]).toContain('已完成');
     expect(lines[0]).toContain('耗时');
     expect(lines[0]).toContain('test-model');
-    expect(lines[1]).toContain('↑');
+    expect(lines[1]).toContain('Tokens');
     expect(lines[1]).toContain('缓存');
     expect(lines[1]).toContain('上下文');
   });
@@ -164,7 +164,7 @@ describe('buildCardContent – tool-use step rendering', () => {
   const toolUseContentIndent = '0px 0px 0px 22px';
 
   function toolUseElements(card: ReturnType<typeof buildCardContent>) {
-    const panel = (card.elements[0] ?? {}) as Record<string, unknown>;
+    const panel = ((card.elements ?? []) as Array<Record<string, unknown>>).find((el) => el.tag === 'collapsible_panel') ?? {};
     return (panel.elements ?? []) as Array<Record<string, unknown>>;
   }
 
@@ -187,7 +187,7 @@ describe('buildCardContent – tool-use step rendering', () => {
       toolUseSteps,
     });
 
-    const panel = (card.elements[0] ?? {}) as Record<string, unknown>;
+    const panel = ((card.elements ?? []) as Array<Record<string, unknown>>).find((el) => el.tag === 'collapsible_panel') ?? {};
     const [titleRow, detailRow, outputRow] = toolUseElements(card);
     expect(panel.vertical_spacing).toBe('4px');
     expect(((titleRow?.icon ?? {}) as Record<string, unknown>).color).toBe('grey');

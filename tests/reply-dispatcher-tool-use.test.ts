@@ -147,8 +147,8 @@ describe('reply-dispatcher tool_use mode', () => {
     expect(result.replyOptions).not.toHaveProperty('onReasoningEnd');
     expect(result.replyOptions).not.toHaveProperty('onAssistantMessageStart');
     expect(result.replyOptions).toHaveProperty('onToolStart');
-    expect((result.replyOptions.shouldEmitToolResult as (() => boolean))()).toBe(false);
-    expect((result.replyOptions.shouldEmitToolOutput as (() => boolean))()).toBe(false);
+    expect((result.replyOptions.shouldEmitToolResult as (() => boolean))()).toBe(true);
+    expect((result.replyOptions.shouldEmitToolOutput as (() => boolean))()).toBe(true);
 
     await (result.replyOptions.onReasoningStream as (payload: { text: string }) => Promise<void>)({
       text: 'Reasoning:\n_first pass_',
@@ -180,7 +180,10 @@ describe('reply-dispatcher tool_use mode', () => {
     result.dispatcher.sendToolResult({ text: 'Read main.ts' });
     await Promise.resolve();
 
-    expect(controllerSpies.onToolPayload).toHaveBeenCalledWith({ text: 'Read main.ts' });
+    expect(controllerSpies.onToolPayload).toHaveBeenCalledWith(
+      { text: 'Read main.ts' },
+      { toolCallId: undefined, toolStatus: undefined },
+    );
     expect(controllerSpies.onDeliver).not.toHaveBeenCalled();
   });
 

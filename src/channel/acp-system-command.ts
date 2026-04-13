@@ -10,18 +10,24 @@ import {
   compactSessionViaProvider,
   getSessionConfigViaProvider,
   inspectSessionViaProvider,
-  resetSessionViaProvider,
+  newSessionViaProvider,
+  clearSessionViaProvider,
+  resolvePermissionMode,
+  setSessionCollaborationModeViaProvider,
 } from './acp-session-provider';
 
-export type AcpSystemCommandVerb = 'config' | 'status' | 'reset' | 'compact';
+export type AcpSystemCommandVerb = 'config' | 'status' | 'new' | 'clear' | 'compact' | 'plan' | 'default';
 
 export function parseAcpSystemCommand(text: string | undefined): AcpSystemCommandVerb | undefined {
   const normalized = String(text || '').trim().toLowerCase();
   if (!normalized) return undefined;
   if (/^\/config(?:\s+.*)?$/iu.test(normalized)) return 'config';
   if (/^\/status(?:\s+.*)?$/iu.test(normalized)) return 'status';
-  if (/^\/(?:new|reset)(?:\s+.*)?$/iu.test(normalized)) return 'reset';
+  if (/^\/new(?:\s+.*)?$/iu.test(normalized)) return 'new';
+  if (/^\/clear(?:\s+.*)?$/iu.test(normalized)) return 'clear';
   if (/^\/compact(?:\s+.*)?$/iu.test(normalized)) return 'compact';
+  if (/^\/plan(?:\s+.*)?$/iu.test(normalized)) return 'plan';
+  if (/^\/default(?:\s+.*)?$/iu.test(normalized)) return 'default';
   return undefined;
 }
 
@@ -30,6 +36,9 @@ function formatAcpStatusText(params: {
   hasActiveTurn: boolean;
   queued: boolean;
   currentModel?: string;
+  currentRuntimeMode?: string;
+  currentApprovalPolicy?: string;
+  currentSandboxMode?: string;
   availableModels?: string[];
   threadId?: string;
   turnId?: string;
@@ -38,6 +47,12 @@ function formatAcpStatusText(params: {
   const lines = ['ACP 状态'];
   lines.push(`会话: ${params.exists ? '已建立' : '未建立'}`);
   lines.push(`模型: ${String(params.currentModel || 'default').trim() || 'default'}`);
+  lines.push(`模式: ${params.currentRuntimeMode === 'pure' ? '纯净' : '助手'}`);
+  const permissionMode = resolvePermissionMode({
+    currentApprovalPolicy: params.currentApprovalPolicy,
+    currentSandboxMode: params.currentSandboxMode,
+  });
+  lines.push(`权限模式: ${permissionMode === 'default' ? '默认权限' : permissionMode === 'full-access' ? '完全访问' : '自定义'}`);
   lines.push(`活跃 Turn: ${params.hasActiveTurn ? '是' : '否'}`);
   lines.push(`排队: ${params.queued ? '是' : '否'}`);
   if (params.lastStatus) lines.push(`状态: ${params.lastStatus}`);
@@ -79,17 +94,31 @@ export async function dispatchAcpSystemCommand(params: {
       hasActiveTurn: inspection.hasActiveTurn,
       queued: inspection.queued,
       currentModel: config?.currentModel,
+      currentRuntimeMode: config?.currentRuntimeMode,
+      currentApprovalPolicy: config?.currentApprovalPolicy,
+      currentSandboxMode: config?.currentSandboxMode,
       availableModels: config?.availableModels,
       threadId: inspection.threadId,
       turnId: inspection.turnId,
       lastStatus: inspection.lastStatus,
     });
-  } else if (verb === 'reset') {
-    const accepted = await resetSessionViaProvider(sessionKey);
-    text = accepted ? '已关闭当前 ACP 会话，下一条消息会新建会话。' : '关闭当前 ACP 会话失败。';
+  } else if (verb === 'new') {
+    const accepted = await newSessionViaProvider(sessionKey);
+    text = accepted ? '下一条消息会新建运行线程。' : '新建会话准备失败。';
+  } else if (verb === 'clear') {
+    const accepted = await clearSessionViaProvider(sessionKey);
+    text = accepted ? '已清理当前运行上下文，下一条消息会开启空上下文。' : '清理运行上下文失败。';
   } else if (verb === 'compact') {
     const accepted = await compactSessionViaProvider(sessionKey);
     text = accepted ? '已触发当前 ACP 会话压缩。' : '触发当前 ACP 会话压缩失败。';
+  } else if (verb === 'plan' || verb === 'default') {
+    const accepted = await setSessionCollaborationModeViaProvider({
+      sessionKey,
+      mode: verb === 'plan' ? 'plan' : 'default',
+    });
+    text = accepted
+      ? `协作模式已切换为${verb === 'plan' ? '计划' : '默认'}，后续 turn 生效。`
+      : '切换协作模式失败。';
   }
 
   if (!text.trim()) return false;

@@ -4,7 +4,7 @@
  *
  * System command and permission notification dispatch for inbound messages.
  *
- * Handles control commands (/help, /reset, etc.) via plain-text delivery
+ * Handles control commands (/help, /new, etc.) via plain-text delivery
  * and permission-error notifications via the streaming card flow.
  */
 
@@ -99,7 +99,7 @@ export async function dispatchPermissionNotification(
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch a system command (/help, /reset, etc.) via plain-text delivery.
+ * Dispatch a system command (/help, /new, etc.) via plain-text delivery.
  * No streaming card, no "Processing..." state.
  */
 export async function dispatchSystemCommand(
@@ -173,5 +173,5 @@ function isLifecycleSessionCommand(text: string | undefined): boolean {
   const match = text.trim().match(/^\/([^\s@]+)/);
   if (!match) return false;
   const command = match[1]?.toLowerCase();
-  return command === 'new' || command === 'reset';
+  return command === 'new' || command === 'clear';
 }

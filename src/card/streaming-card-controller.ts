@@ -409,8 +409,38 @@ export class StreamingCardController {
    * 3. isTerminalPhase — completed/aborted/terminated/creation_failed
    */
   private shouldProceed(source: string): boolean {
-    if (this.guard.isTerminated || this.guard.shouldSkip(source)) return false;
-    return !this.isTerminalPhase;
+    if (this.guard.isTerminated) {
+      log.debug('card update skipped: terminated guard', {
+        source,
+        sessionKey: this.deps.sessionKey,
+        phase: this.phase,
+        cardMessageId: this.cardKit.cardMessageId,
+        cardKitCardId: this.cardKit.cardKitCardId ?? this.cardKit.originalCardKitCardId,
+      });
+      return false;
+    }
+    if (this.guard.shouldSkip(source)) {
+      log.debug('card update skipped: unavailable guard', {
+        source,
+        sessionKey: this.deps.sessionKey,
+        phase: this.phase,
+        cardMessageId: this.cardKit.cardMessageId,
+        cardKitCardId: this.cardKit.cardKitCardId ?? this.cardKit.originalCardKitCardId,
+      });
+      return false;
+    }
+    if (this.isTerminalPhase) {
+      log.debug('card update skipped: terminal phase', {
+        source,
+        sessionKey: this.deps.sessionKey,
+        phase: this.phase,
+        terminalReason: this._terminalReason,
+        cardMessageId: this.cardKit.cardMessageId,
+        cardKitCardId: this.cardKit.cardKitCardId ?? this.cardKit.originalCardKitCardId,
+      });
+      return false;
+    }
+    return true;
   }
 
   // ------------------------------------------------------------------
@@ -581,7 +611,7 @@ export class StreamingCardController {
     await this.ensureCardCreated();
     if (!this.shouldProceed('onAcpToolEvent.postCreate')) return;
     if (!this.cardKit.cardMessageId) return;
-    if (!this.text.accumulatedText && this.cardKit.cardKitCardId) {
+    if (this.cardKit.cardKitCardId) {
       await this.throttledToolUseStatusUpdate();
       return;
     }
@@ -640,6 +670,7 @@ export class StreamingCardController {
 
     log.info('acp tool event received', {
       sessionKey: this.deps.sessionKey,
+      turnId: event.turnId,
       toolCallId,
       toolName,
       status,
@@ -879,7 +910,14 @@ export class StreamingCardController {
         });
       }
     } catch (err) {
-      log.warn('final card update failed', { error: String(err) });
+      log.warn('final card update failed', {
+        sessionKey: this.deps.sessionKey,
+        cardMessageId: this.cardKit.cardMessageId,
+        cardKitCardId: idleEffectiveCardId,
+        phase: this.phase,
+        terminalReason: this._terminalReason,
+        error: String(err),
+      });
     } finally {
       clearToolUseTraceRun(this.deps.sessionKey);
     }

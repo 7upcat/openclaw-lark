@@ -99,6 +99,7 @@ const TOOL_DESCRIPTORS: ToolDescriptor[] = [
     title: 'Search web',
     sanitizer: 'search',
     paramKeys: ['query', 'q'],
+    detailFromParams: (params) => buildWebSearchDetail(params),
     summaryPatterns: [/^(?:search\s+(?:web\s+)?(?:for|about)|query)\s+(.+)$/i],
     summaryPreference: ['quoted', 'matched', 'line'],
   },
@@ -349,6 +350,19 @@ function buildPatternDetail(params: Record<string, unknown>, options: { includeT
   return pattern ?? target ?? undefined;
 }
 
+function buildWebSearchDetail(params: Record<string, unknown>): string | undefined {
+  const action =
+    params.action && typeof params.action === 'object' && !Array.isArray(params.action)
+      ? (params.action as Record<string, unknown>)
+      : undefined;
+  return (
+    extractScalarText(action?.url) ??
+    extractScalarText(params.url) ??
+    extractScalarText(params.query) ??
+    extractScalarText(params.q)
+  );
+}
+
 function extractScalarText(value: unknown): string | undefined {
   if (typeof value === 'string') return value.trim() || undefined;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -379,8 +393,10 @@ function sanitizeToolDetail(
       );
     case 'path':
       return sanitizePathLike(cleaned, options);
-    case 'search':
-      return stripQuotes(cleaned);
+    case 'search': {
+      const searchText = stripQuotes(cleaned);
+      return /^https?:\/\//i.test(searchText) ? sanitizeUrlForDisplay(searchText) : searchText;
+    }
     case 'url':
       return stripQuotes(cleaned).replace(/^from\s+/i, '');
     case 'generic':

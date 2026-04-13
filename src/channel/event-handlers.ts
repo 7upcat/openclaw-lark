@@ -20,7 +20,8 @@ import { larkLogger } from '../core/lark-logger';
 import { handleCardAction } from '../tools/auto-auth';
 import { handleAskUserAction } from '../tools/ask-user-question';
 import { LarkClient } from '../core/lark-client';
-import { handleDangerousConfirmationCardAction } from '../messaging/inbound/dangerous-confirmation-cards';
+import { handleAuthorizationConfirmationCardAction } from '../messaging/inbound/authorization-confirmation-cards';
+import { handleAcpUserInputCardAction } from '../messaging/inbound/acp-user-input-cards';
 import { addReactionFeishu } from '../messaging/outbound/reactions';
 import { buildQueueKey, enqueueFeishuChatTask, getActiveDispatcher, hasActiveTask } from './chat-queue';
 import {
@@ -121,7 +122,10 @@ export async function handleMessageEvent(ctx: MonitorContext, data: unknown): Pr
           timeoutMs: steerTimeoutMs,
         });
         if (interrupted) {
-          log(`feishu[${accountId}]: ACP abort trigger interrupted session for chat ${chatId}`);
+          log(
+            `feishu[${accountId}]: ACP abort trigger interrupted session for chat ${chatId} ` +
+            `(active=${active ? 'yes' : 'no'}, session=${routedSessionKey})`,
+          );
           active?.abortController?.abort();
           active?.abortCard().catch((err) => {
             error(`feishu[${accountId}]: interrupt fast-path abortCard failed: ${String(err)}`);
@@ -415,9 +419,13 @@ export async function handleCardActionEvent(ctx: MonitorContext, data: unknown):
     const askResult = handleAskUserAction(data, ctx.cfg, ctx.accountId);
     if (askResult !== undefined) return askResult;
 
-    // 全局危险操作确认卡片。
-    const dangerousResult = await handleDangerousConfirmationCardAction(data, ctx.cfg, ctx.accountId);
-    if (dangerousResult !== undefined) return dangerousResult;
+    // ACP 用户输入卡片。
+    const acpUserInputResult = handleAcpUserInputCardAction(data);
+    if (acpUserInputResult !== undefined) return acpUserInputResult;
+
+    // 全局授权确认卡片。
+    const authorizationResult = await handleAuthorizationConfirmationCardAction(data, ctx.cfg, ctx.accountId);
+    if (authorizationResult !== undefined) return authorizationResult;
 
     // auto-auth：授权/权限引导相关卡片交互（宿主内建能力优先）
     const authResult = await handleCardAction(data, ctx.cfg, ctx.accountId);

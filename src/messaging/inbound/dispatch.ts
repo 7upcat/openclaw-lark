@@ -28,7 +28,6 @@ import {
   threadScopedKey,
   unregisterActiveDispatcher,
 } from '../../channel/chat-queue';
-import { registerCodexAcpToolCallback } from '../../channel/acp-tool-callback';
 import { resolveToolUseDisplayConfig } from '../../card/tool-use-config';
 import { clearToolUseTraceRun, startToolUseTraceRun } from '../../card/tool-use-trace-store';
 import { isLikelyAbortText } from '../../channel/abort-detect';
@@ -42,6 +41,8 @@ import { runFeishuAuthI18n } from '../../commands/auth';
 import { getFeishuHelpI18n, runFeishuStartI18n } from '../../commands/index';
 import { buildI18nMarkdownCard, sendCardFeishu, sendMessageFeishu } from '../outbound/send';
 import { dispatchPermissionNotification, dispatchSystemCommand } from './dispatch-commands';
+import { parseAcpSystemCommand } from '../../channel/acp-system-command';
+import { registerInboundRuntimeCallbacks } from './runtime-callbacks';
 import {
   buildBodyForAgent,
   buildEnvelopeWithHistory,
@@ -160,7 +161,14 @@ async function dispatchNormalMessage(
     clearToolUseTraceRun(effectiveSessionKey);
   }
 
-  const { dispatcher, replyOptions, markDispatchIdle, markFullyComplete, abortCard, handleAcpToolEvent } = createFeishuReplyDispatcher({
+  const {
+    dispatcher,
+    replyOptions,
+    markDispatchIdle,
+    markFullyComplete,
+    abortCard,
+    handleAcpToolEvent: handleRuntimeToolEvent,
+  } = createFeishuReplyDispatcher({
     cfg: dc.accountScopedCfg,
     agentId: dc.route.agentId,
     chatId: dc.ctx.chatId,
@@ -181,9 +189,19 @@ async function dispatchNormalMessage(
   // terminate the streaming card before this task completes.
   const queueKey = buildQueueKey(dc.account.accountId, dc.ctx.chatId, dc.ctx.threadId);
   registerActiveDispatcher(queueKey, { abortCard, abortController, sessionKey: effectiveSessionKey });
-  if (toolUseDisplay.showToolUse) {
-    registerCodexAcpToolCallback(effectiveSessionKey, handleAcpToolEvent);
-  }
+  registerInboundRuntimeCallbacks({
+    sessionKey: effectiveSessionKey,
+    cfg: dc.accountScopedCfg,
+    accountId: dc.account.accountId,
+    persona: dc.route.agentId,
+    chatType: dc.ctx.chatType,
+    senderId: dc.ctx.senderId,
+    chatId: dc.ctx.chatId,
+    replyToMessageId: replyToMessageId ?? dc.ctx.messageId,
+    showToolUse: toolUseDisplay.showToolUse,
+    handleToolEvent: handleRuntimeToolEvent,
+    abortCard,
+  });
 
   dc.log(`feishu[${dc.account.accountId}]: dispatching to agent (session=${effectiveSessionKey})`);
   log.info(`dispatching to agent (session=${effectiveSessionKey})`);
@@ -290,7 +308,7 @@ export async function dispatchToAgent(params: {
   }
 
   // 2. Build annotated message body
-  const messageBody = buildMessageBody(params.ctx, params.quotedContent);
+  const messageBody = buildMessageBody(dc.ctx, params.quotedContent);
 
   // 3. Permission-error notification (optional side-effect).
   //    Isolated so a failure here does not block the main message dispatch.
@@ -316,7 +334,7 @@ export async function dispatchToAgent(params: {
   // 5. Build BodyForAgent with mention annotation (if any).
   //    SDK >= 2026.2.10 no longer falls back to Body for BodyForAgent,
   //    so we must set it explicitly to preserve the annotation.
-  const bodyForAgent = buildBodyForAgent(params.ctx);
+  const bodyForAgent = buildBodyForAgent(dc.ctx);
 
   // 6. Build InboundHistory for SDK metadata injection (>= 2026.2.10).
   //    The SDK's buildInboundUserContextPrefix renders these as structured
@@ -332,12 +350,12 @@ export async function dispatchToAgent(params: {
       : undefined;
 
   // 7. Build inbound context payload
-  const isBareNewOrReset = /^\/(?:new|reset)\s*$/i.test((params.ctx.content ?? '').trim());
+  const isBareNew = /^\/new\s*$/i.test((dc.ctx.content ?? '').trim());
   const groupSystemPrompt = dc.isGroup
     ? params.groupConfig?.systemPrompt?.trim() || params.defaultGroupConfig?.systemPrompt?.trim() || undefined
     : undefined;
   const originatingTo =
-    isBareNewOrReset && dc.isThread
+    isBareNew && dc.isThread
       ? encodeFeishuRouteTarget({
           target: dc.feishuTo,
           replyToMessageId: params.replyToMessageId ?? params.ctx.messageId,
@@ -347,8 +365,8 @@ export async function dispatchToAgent(params: {
   const ctxPayload = buildInboundPayload(dc, {
     body: combinedBody,
     bodyForAgent,
-    rawBody: params.ctx.content,
-    commandBody: params.ctx.content,
+    rawBody: dc.ctx.content,
+    commandBody: dc.ctx.content,
     originatingTo,
     senderName: params.ctx.senderName ?? params.ctx.senderId,
     senderId: params.ctx.senderId,
@@ -377,7 +395,7 @@ export async function dispatchToAgent(params: {
   //     Skipped for comment targets: comment text won't match /feishu_*
   //     patterns in practice, and sendCardFeishu/sendMessageFeishu can't
   //     deliver to comment:... targets.
-  const contentTrimmed = (params.ctx.content ?? '').trim();
+  const contentTrimmed = (dc.ctx.content ?? '').trim();
   const isCommentFlow = isCommentTarget(dc.ctx.chatId);
   const isDoctorCommand = !isCommentFlow && /^\/feishu[_ ]doctor\s*$/i.test(contentTrimmed);
   const isAuthCommand = !isCommentFlow && /^\/feishu[_ ](?:auth|onboarding)\s*$/i.test(contentTrimmed);
@@ -435,16 +453,19 @@ export async function dispatchToAgent(params: {
   // 8. Dispatch: system command vs. normal message
   //    Comment targets always go to normal dispatch — system command
   //    delivery uses sendMessageFeishu which can't reach comment threads.
+  const acpSystemVerb = parseAcpSystemCommand(dc.ctx.content);
   const isCommand = !isCommentFlow &&
-    dc.core.channel.commands.isControlCommandMessage(params.ctx.content, params.accountScopedCfg);
+    (Boolean(acpSystemVerb) ||
+      (!/^\/reset(?:\s|$)/iu.test(String(dc.ctx.content || '').trim()) &&
+        dc.core.channel.commands.isControlCommandMessage(dc.ctx.content, params.accountScopedCfg)));
 
   // Resolve per-group skill filter (per-group > default "*")
   const skillFilter = dc.isGroup ? (params.groupConfig?.skills ?? params.defaultGroupConfig?.skills) : undefined;
 
   if (isCommand) {
     await dispatchSystemCommand(dc, ctxPayload, params.replyToMessageId);
-    // /new and /reset explicitly start a new session — clear pending history
-    if (isBareNewOrReset && dc.isGroup && historyKey && params.chatHistories) {
+    // /new explicitly starts a new runtime thread.
+    if (isBareNew && dc.isGroup && historyKey && params.chatHistories) {
       clearHistoryEntriesIfEnabled({
         historyMap: params.chatHistories,
         historyKey,
